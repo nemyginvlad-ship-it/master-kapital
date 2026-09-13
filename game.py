@@ -966,12 +966,13 @@ def run_turn(game, decisions):
                     c.union_offer = False; c.tension = min(100, c.tension + 8)
                     add("🧑‍🤝‍🧑", f"«{c.name}» отклонила коллективный договор профсоюза.", "warn", "Профсоюз")
     # --- Тендер лот ---
-    if game["turn"] >= 3 and not game.get("tender") and month in TENDER_MONTHS:
+    next_month = (month % 12) + 1
+    if game["turn"] >= 3 and not game.get("tender") and next_month in TENDER_MONTHS:
         cname, vshare, pcap, qmin = random.choice(TENDER_CUSTOMERS)
         vol = max(20, int(market * vshare / 3))
         game["tender"] = dict(customer=cname, monthly_vol=vol, price_cap=round(game["avg_price"] * pcap, 1),
                               quality_min=qmin, open=True)
-        add("🏛", f"Объявлен тендер госзакупок: {cname}. Объём {vol} ед./мес на 3 мес, потолок {game['tender']['price_cap']:.1f} ₽, качество ≥{qmin}.", "gold", "Госзакупки")
+        add("🏛", f"Анонс: в следующем месяце откроется тендер госзакупок {cname}. Объём {vol} ед./мес на 3 мес, потолок {game['tender']['price_cap']:.1f} ₽, качество ≥{qmin}. Заявки — во вкладке «Решения» в месяц тендера.", "gold", "Госзакупки")
     if month in SUBSIDY_MONTHS:
         names = f"{SUB_TYPE_NAMES[open_types[0]]} и {SUB_TYPE_NAMES[open_types[1]]}"
         add("🏛", f"Открыто окно заявок на субсидии Минпромторга: {names}.", "gold", "Минпромторг")
@@ -1273,7 +1274,7 @@ def run_turn(game, decisions):
         check_achievements(game, c, c.history[-1])
     # --- Розыгрыш тендера ---
     tnd = game.get("tender")
-    if tnd and tnd.get("open"):
+    if tnd and tnd.get("open") and month in TENDER_MONTHS:
         bids = []
         for c in alive:
             dd = decisions[c.name]
