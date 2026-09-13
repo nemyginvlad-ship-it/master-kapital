@@ -760,6 +760,11 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
     cap = c.capacity(); s = c.strategy
     poor = c.cash < sc * 0.5
     price, prod = avg_price, int(cap * 0.85 * season)
+
+    # УСИЛЕНИЕ: боты готовятся к высокому сезону заранее
+    if month in [10, 11]:  # Октябрь-ноябрь, готовятся к декабрю
+        prod = int(prod * 1.15)  # +15% к производству
+        
     if s == "conservative": price, prod = avg_price * 0.95, int(cap * 0.7 * season)
     elif s == "aggressive": price, prod = avg_price * 1.10, cap
     elif s == "dumper": price, prod = avg_price * 0.85, cap
@@ -776,16 +781,16 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
     util_last = c.history[-1]["util"] if c.history else 0.0
     gate_invest = util_last >= 0.85
     est_rev = cap * 0.85 * avg_price
-    prio = {"conservative": [("charity",0.20),("rnd",0.30),("marketing",0.30),("invest",0.20)],
-            "balanced": [("charity",0.15),("marketing",0.45),("rnd",0.25),("invest",0.15)],
-            "aggressive": [("charity",0.05),("marketing",0.50),("invest",0.30),("rnd",0.15)],
-            "niche": [("charity",0.30),("rnd",0.50),("marketing",0.20)],
-            "financier": [("charity",0.10),("rnd",0.20),("marketing",0.20),("invest",0.10)],
-            "dumper": [("marketing",0.60),("invest",0.20),("rnd",0.10)],
-            "adaptive": [("charity",0.15),("marketing",0.40),("rnd",0.25),("invest",0.20)],
-            "expansionist": [("invest",0.50),("marketing",0.25),("charity",0.05),("rnd",0.20)],
-            "follower": [("charity",0.10),("marketing",0.30),("rnd",0.20),("invest",0.10)]}.get(
-            s, [("marketing",0.4),("rnd",0.3),("charity",0.1),("invest",0.2)])
+    prio = {"conservative": [("charity",0.15),("rnd",0.35),("marketing",0.40),("invest",0.10)],
+        "balanced": [("charity",0.10),("marketing",0.50),("rnd",0.30),("invest",0.10)],
+        "aggressive": [("charity",0.05),("marketing",0.55),("invest",0.25),("rnd",0.15)],
+        "niche": [("charity",0.20),("rnd",0.55),("marketing",0.25)],
+        "financier": [("charity",0.10),("rnd",0.25),("marketing",0.30),("invest",0.10)],
+        "dumper": [("marketing",0.65),("invest",0.20),("rnd",0.15)],
+        "adaptive": [("charity",0.10),("marketing",0.45),("rnd",0.30),("invest",0.15)],
+        "expansionist": [("invest",0.45),("marketing",0.30),("charity",0.05),("rnd",0.20)],
+        "follower": [("charity",0.10),("marketing",0.40),("rnd",0.25),("invest",0.10)]}.get(
+        s, [("marketing",0.4),("rnd",0.3),("charity",0.1),("invest",0.2)])
     spend = {"marketing":0.0,"rnd":0.0,"invest":0.0,"charity":0.0}
     for kind, share in prio:
         amt = envelope * share
@@ -802,7 +807,11 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
     mkt, rnd, inv, ch = spend["marketing"], spend["rnd"], spend["invest"], spend["charity"]
     if poor: mkt, rnd, inv, ch = mkt/2, rnd/2, inv/2, ch/2
     need = c.staff_need(prod)
-    hire = {p: max(0, need[p] - c.staff[p]) for p in PROFS}
+    hire = {p: max(0, need[p] - c.staff[p]) + 1 for p in PROFS}  # +1 запасной
+    # Но не больше чем может позволить
+    for p in PROFS:
+        max_affordable = int(c.cash / (LABOR_WAGE[p] * 3))  # Может содержать на 3 месяца
+        hire[p] = min(hire[p], max_affordable, pool.get(p, 0) + 5)
     if s in ("aggressive", "niche"): hire["painters"] += 1
     premium = {"conservative":0,"aggressive":25,"balanced":10,"dumper":0,"niche":15,"financier":0,
                "adaptive":10,"expansionist":10,"follower":0}.get(s, 0)
@@ -814,7 +823,21 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
              train=train, nov_hire=nov_hire, premium=premium,
              loyalty=300.0 if s in ("conservative","balanced") else 0.0,
              tender_apply=False, tender_price=0.0, union_choice=None)
+    # УСИЛЕНИЕ: если бот отстаёт по MPI, он становится агрессивнее
+    if c.history:
+        leader_mpi = max(x.mpi_total for x in game["companies"] if x.history)
+        if c.mpi_total < leader_mpi * 0.7:  # Отстаёт больше чем на 30%
+            d["marketing"] *= 1.4  # +40% к маркетингу
+        d["rnd"] *= 1.3  # +30% к R&D
+        # Бот готов взять кредит для рывка
+        if c.cash < 5000 and sum(l[0] for l in c.loans) < LOAN_LIMIT * 0.5:
+            d["loan"] = min(10000, LOAN_LIMIT - sum(l[0] for l in c.loans))
     if s == "conservative" and c.cash > sc * 1.2: d["deposit"] = c.cash * 0.2
+    # УСИЛЕНИЕ: боты используют депозиты эффективнее
+    if c.cash > sc * 2 and not d["deposit"]:
+        deposit_amt = min(c.cash * 0.4, 20000)
+        d["deposit"] = deposit_amt
+        d["deposit_term"] = 6
     if difficulty == "easy":
         d["price"] *= 1 + random.uniform(-0.10, 0.10)
         d["production"] = int(d["production"] * random.uniform(0.85, 1.15))
@@ -847,8 +870,16 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
             pref = 2 if s == "conservative" else (1 if s == "aggressive" else open_types[0])
             d["sub_type"] = pref if pref in open_types else open_types[0]
     if difficulty == "hard":
-        if c.cum_rnd < PATENT_THRESHOLD and c.cash > sc * 0.8: d["rnd"] = max(d["rnd"], 2000.0)
-        if not c.brand and c.cash > sc * 0.9: d["rnd"] = max(d["rnd"], 2500.0); d["charity"] = max(d["charity"], 800.0)
+        if c.cum_rnd < PATENT_THRESHOLD and c.cash > sc * 0.8: 
+            d["rnd"] = max(d["rnd"], 3000.0)  # Было 2000
+        if not c.brand and c.cash > sc * 0.9: 
+            d["rnd"] = max(d["rnd"], 3500.0)  # Было 2500
+            d["marketing"] = max(d["marketing"], 1500)  # НОВОЕ
+            d["charity"] = max(d["charity"], 1000.0)  # Было 800
+        # Дополнительные инвестиции в качество
+        if c.quality < 110:
+            d["rnd"] += 1000
+            d["premium"] = 15  # Премия персоналу для удержания
     coal = game.get("coalition")
     if coal and coal["months"] > 0 and c.name in coal["participants"]:
         d["price"] *= (1 - random.uniform(0.08, 0.12))
@@ -860,6 +891,13 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
         d["tender_price"] = round(tnd["price_cap"] * sm, 1)
     if c.union_offer:
         d["union_choice"] = "sign" if c.cash > 15000 else "refuse"
+# УСИЛЕНИЕ: боты демпингуют, если теряют долю
+    if c.history and len(c.history) >= 2:
+        prev_share = c.history[-2]["market_share"]
+        curr_share = c.history[-1]["market_share"]
+        if curr_share < prev_share * 0.9:  # Потерял больше 10% доли
+            d["price"] *= 0.96  # Срезает цену на 4%
+            d["marketing"] *= 1.25  # Увеличивает маркетинг на 25%
     return d
 
 def run_turn(game, decisions):
