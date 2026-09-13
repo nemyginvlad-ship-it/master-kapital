@@ -1797,13 +1797,12 @@ with tabs[1]:
                             if next_m in SUBSIDY_MONTHS:
                                 st.markdown(f"Направления: **{SUB_TYPE_NAMES[open_types[0]]}** и **{SUB_TYPE_NAMES[open_types[1]]}**.")
                                 sub_apply = st.checkbox("Подать заявку", key=nm+"_sub")
-                                if sub_apply:
-                                    sub_type = st.selectbox("Направление", open_types, format_func=lambda x: SUB_TYPE_NAMES[x], key=nm+"_subtype")
-                                    sub_pay = st.number_input("Плата Корпорации, ₽ (0=сами)", 0.0, 5000.0, 0.0, 100.0, key=nm+"_subpay")
-                                    st.caption(f"Баллы документов: **{corp_points(sub_pay):.0f}**")
+                                sub_type = st.selectbox("Направление", open_types, format_func=lambda x: SUB_TYPE_NAMES[x], key=nm+"_subtype")
+                                sub_pay = st.number_input("Плата Корпорации, ₽ (0=сами)", 0.0, 5000.0, 0.0, 100.0, key=nm+"_subpay")
+                                st.caption(f"Баллы документов: **{corp_points(sub_pay):.0f}**. Поля учитываются, только если отметите «Подать заявку».")
                             else:
                                 wait = min((m - next_m) % 12 for m in SUBSIDY_MONTHS) or 12
-                                st.caption(f"Окно заявок через {wait} мес.")
+                                st.caption(f"Окно заявок через {wait} мес. ({MONTH_NAMES[(next_m - 1 + wait) % 12]}). Сейчас заявки не принимаются.")
                     r1, r2 = st.columns(2)
                     with r1, st.container():
                         st.markdown("<div id='card-price' style='display:none'></div><div class='tag' style='--c:#1a7a4a'><span class='tag-hole'></span>ЦЕНА И ПРОИЗВОДСТВО</div>", unsafe_allow_html=True)
@@ -1852,15 +1851,11 @@ with tabs[1]:
                                             f"<span class='chip'>Качество ≥{tnd['quality_min']}</span>"
                                             f"<span class='chip'>Аванс {TENDER_ADVANCE*100:.0f}%</span></div>", unsafe_allow_html=True)
                                 tender_apply = st.checkbox("Подать заявку на тендер", key=nm+"_tender")
-                                tender_price = tnd["price_cap"]
-                                if tender_apply:
-                                    tender_price = st.slider("Ваша цена заявки, ₽", round(tnd["price_cap"]*0.7,1), tnd["price_cap"], tnd["price_cap"], 0.5, key=nm+"_tprice")
-                                    ps = max(0.0, 1 - tender_price/tnd["price_cap"])
-                                    qs = min(1.0, company.quality/(tnd["quality_min"]*1.2))
-                                    rs = min(1.0, 0.5 + company.reliability*0.1 + company.reputation*0.02)
-                                    st.caption(f"Ваш оценочный балл ≈ {0.6*ps + 0.2*qs + 0.2*rs:.2f} (цена {ps:.2f} + качество {qs:.2f} + надёжность {rs:.2f}). Ниже цена — выше балл, но меньше маржа.")
-                                else:
-                                    tender_apply = False
+                                tender_price = st.slider("Ваша цена заявки, ₽", round(tnd["price_cap"]*0.7,1), tnd["price_cap"], tnd["price_cap"], 0.5, key=nm+"_tprice")
+                                ps = max(0.0, 1 - tender_price/tnd["price_cap"])
+                                qs = min(1.0, company.quality/(tnd["quality_min"]*1.2))
+                                rs = min(1.0, 0.5 + company.reliability*0.1 + company.reputation*0.02)
+                                st.caption(f"Ваш оценочный балл ≈ {0.6*ps + 0.2*qs + 0.2*rs:.2f}. Поля учитываются, только если отметите «Подать заявку».")
                     union_choice = None
                     if company.union_offer:
                         with st.container():
