@@ -756,6 +756,53 @@ def check_achievements(game, c, h):
     if game["turn"] >= game.get("max_turns", 24) and not c.bankrupt: unlock("marathon")
     return got
 
+def expert_pick(c, d, game, market):
+    hist = c.history[-1] if c.history else None
+    rep_mult = min(1.0 + REP_MKT_CAP, 1.0 + REP_MKT * c.reputation)
+    if hist:
+        a_last = hist["quality"]*0.02 + hist["marketing"]/3000.0 - hist["price"]/30.0 + REP_ATTRACT*c.reputation
+        sh_last = max(0.5, hist["market_share"])
+        S = a_last * (100 - sh_last) / sh_last
+    else:
+        a_last = c.quality*0.02 - d["price"]/30.0
+        S = a_last * 9.0
+    comps = [x for x in game["companies"] if x.history]
+    mp = max([x.history[-1]["profit"] for x in comps] + [1.0]) or 1.0
+    ms = max([x.history[-1]["market_share"] for x in comps] + [1.0]) or 1.0
+    mc = max([x.history[-1]["cash"] + x.history[-1]["dep_total"] for x in comps] + [1.0]) or 1.0
+    mq = max([x.quality for x in comps] + [1.0]) or 1.0
+    w = {"dumper": (0.7,1.5,1.0,0.8), "niche": (1.0,0.7,1.0,1.5), "conservative": (1.2,0.7,1.5,1.0),
+         "aggressive": (1.2,1.2,0.9,1.0), "financier": (1.0,0.8,1.6,1.0), "balanced": (1,1,1,1),
+         "adaptive": (1,1,1,1), "expansionist": (1.0,1.2,0.8,1.0), "follower": (1,1,1,1)}.get(c.strategy, (1,1,1,1))
+    def score(dd):
+        a = c.quality*0.02 + (dd["marketing"]*rep_mult)/3000.0 - dd["price"]/30.0 + REP_ATTRACT*c.reputation
+        share = a/(a+S)*100 if (a+S) > 0 else 0
+        sales = min(market*share/100, dd["production"] + c.inventory)
+        rev = sales*dd["price"]
+        unit = c.unit_cost(max(1, dd["production"]))
+        prod_cost = unit*dd["production"]*game.get("cost_factor", 1.0)
+        leftover = max(0, dd["production"] + c.inventory - sales)
+        costs = prod_cost + leftover*STORAGE_COST + dd["marketing"] + dd["rnd"]
+        operating = rev - costs - dd["charity"]
+        if c.tax == "usn6": tax = rev*0.06
+        elif c.tax == "usn15": tax = max((rev-costs)*0.15, rev*0.01)
+        else: tax = max(0.0, operating)*0.25
+        profit = operating - tax
+        funds = c.cash + profit - dd["investment"]
+        qual = c.quality + (dd["rnd"]*RND_GAIN - QUALITY_DECAY*0.3 if dd["rnd"] > 0 else -QUALITY_DECAY)
+        return (w[0]*0.35*max(0,profit)/mp + w[1]*0.25*share/ms + w[2]*0.25*max(0,funds)/mc + w[3]*0.15*max(20,qual)/mq)
+    cands = [dict(d)]
+    for dp, dm, dpr, dinv, drnd in [(-0.05,+0.30,0,0,0), (+0.05,-0.20,0,0,0), (-0.03,0,+0.15,0,0),
+                                    (+0.03,-0.10,-0.15,0,0), (0,-0.40,0,0,0), (0,+0.10,0,1,2000)]:
+        nd = dict(d)
+        nd["price"] = round(max(1.0, d["price"]*(1+dp)), 1)
+        nd["marketing"] = max(0.0, d["marketing"]*(1+dm))
+        nd["production"] = max(0, min(c.capacity(), int(d["production"]*(1+dpr))))
+        if dinv: nd["investment"] = round(c.assets*DEPRECIATION, -2)
+        if drnd: nd["rnd"] = d["rnd"] + drnd
+        cands.append(nd)
+    return max(cands, key=score)
+
 def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_types, pool, game):
     cap = c.capacity(); s = c.strategy
     poor = c.cash < sc * 0.5
@@ -851,7 +898,13 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
         if last_factor < 1.0:
             d["production"] = int(d["production"] * 0.8); d["marketing"] *= 0.7
     floor = c.unit_cost(max(1, d["production"])) * 1.05
+    d["price"] = min(d["price"], game["avg_price"] + 15)
     if d["price"] < floor: d["price"] = round(floor, 2)
+    if difficulty == "expert":
+        market_est = int(BASE_MARKET * season * game.get("last_factor", 1.0))
+        d = expert_pick(c, d, game, market_est)
+        floor2 = c.unit_cost(max(1, d["production"])) * 1.05
+        if d["price"] < floor2: d["price"] = round(floor2, 2)
     if c.cash < RESCUE_CASH:
         d.update(marketing=0.0, rnd=0.0, investment=0.0, charity=0.0)
         d["price"] = max(avg_price * 0.92, floor)
@@ -860,7 +913,7 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
         if not c.rescue_taken and free_loan > 0:
             d["loan"] = min(sc * 0.5, free_loan); c.rescue_taken = True
     if month in SUBSIDY_MONTHS and c.cash > sc * 0.5:
-        chance = {"easy":0.35,"medium":0.65,"hard":0.95}.get(difficulty, 0.65)
+        chance = {"easy": 0.35, "medium": 0.65, "hard": 0.95, "expert": 0.95}.get(difficulty, 0.65)
         if random.random() < chance:
             d["subsidy_apply"] = True
             base_pay = {"conservative":300,"aggressive":2000,"balanced":1000,"dumper":500,"niche":1500,
@@ -869,7 +922,7 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
             d["sub_pay"] = float(base_pay)
             pref = 2 if s == "conservative" else (1 if s == "aggressive" else open_types[0])
             d["sub_type"] = pref if pref in open_types else open_types[0]
-    if difficulty == "hard":
+    if difficulty in ("hard", "expert"):
         if c.cum_rnd < PATENT_THRESHOLD and c.cash > sc * 0.8: 
             d["rnd"] = max(d["rnd"], 3000.0)  # Было 2000
         if not c.brand and c.cash > sc * 0.9: 
@@ -891,6 +944,7 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
         d["tender_price"] = round(tnd["price_cap"] * sm, 1)
     if c.union_offer:
         d["union_choice"] = "sign" if c.cash > 15000 else "refuse"
+    d["price"] = min(d["price"], game["avg_price"] + 15)
 # УСИЛЕНИЕ: боты демпингуют, если теряют долю
     if c.history and len(c.history) >= 2:
         prev_share = c.history[-2]["market_share"]
@@ -1516,8 +1570,8 @@ if game is None:
             sandbox = st.checkbox("Песочница: подсказки + иммунитет от банкротства 6 мес", value=False)
         with c2:
             nbots = st.slider("Ботов-конкурентов", 0, 9, 6)
-            diff = st.selectbox("Сложность ботов", ["easy", "medium", "hard"],
-                                format_func=lambda x: {"easy": "Лёгкие", "medium": "Средние", "hard": "Сложные"}[x])
+            diff = st.selectbox("Сложность ботов", ["easy", "medium", "hard", "expert"],
+                                format_func=lambda x: {"easy": "Лёгкие", "medium": "Средние", "hard": "Сложные", "expert": "Экспертные (MPI-осознанные)"}[x])
             royalty = st.checkbox("Роялти: конкуренты платят патентообладателю 0.5% выручки", value=False)
         turns = st.slider("Длительность игры (месяцев)", 12, 36, 24)
         start_cash = st.selectbox("Стартовый капитал", list(START_OPTIONS.keys()), format_func=lambda x: START_OPTIONS[x], index=0)
@@ -1808,7 +1862,7 @@ with tabs[1]:
                         st.markdown("<div id='card-price' style='display:none'></div><div class='tag' style='--c:#1a7a4a'><span class='tag-hole'></span>ЦЕНА И ПРОИЗВОДСТВО</div>", unsafe_allow_html=True)
                         with st.container():
                             st.markdown("<div id='panel-price' style='display:none'></div>", unsafe_allow_html=True)
-                            price = st.number_input("Цена, ₽/ед.", 1.0, 200.0, float(game["avg_price"]), 0.5, key=nm+"_price")
+                            price = st.number_input("Цена, ₽/ед.", 1.0, 1000.0, min(1000.0, max(1.0, float(game["avg_price"]))), 0.5, key=nm+"_price")
                             production = st.slider("Производство, ед.", 0, company.capacity(), int(company.capacity()*0.85), key=nm+"_prod")
                     with r2, st.container():
                         st.markdown("<div id='card-charity' style='display:none'></div><div class='tag' style='--c:#e8b30a'><span class='tag-hole'></span>МАРКЕТИНГ И БЛАГОТВОРИТЕЛЬНОСТЬ</div>", unsafe_allow_html=True)
