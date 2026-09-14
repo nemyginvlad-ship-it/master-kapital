@@ -848,7 +848,12 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
     char_floor = {"conservative":400,"balanced":500,"aggressive":400,"niche":1000,"financier":200,
                   "dumper":0,"adaptive":500,"expansionist":300,"follower":200}.get(s, 300)
     if c.tax != "usn6": char_floor = round(char_floor * 1.3)
-    if free > 0: spend["charity"] = max(spend["charity"], float(char_floor))
+    if free > 0 and last_profit > 0:
+        spend["charity"] = min(max(spend["charity"], float(char_floor)), max(300.0, last_profit * 0.35))
+    elif free > 0 and c.cash > sc * 1.5:
+        spend["charity"] = float(char_floor) * 0.5
+    else:
+        spend["charity"] = min(spend["charity"], 200.0)
     recip = {"conservative":2,"balanced":1,"aggressive":4,"niche":3,"financier":1,"dumper":1,
              "adaptive":1,"expansionist":1,"follower":2}.get(s, 1)
     mkt, rnd, inv, ch = spend["marketing"], spend["rnd"], spend["invest"], spend["charity"]
@@ -925,10 +930,10 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
     if difficulty in ("hard", "expert"):
         if c.cum_rnd < PATENT_THRESHOLD and c.cash > sc * 0.8: 
             d["rnd"] = max(d["rnd"], 3000.0)  # Было 2000
-        if not c.brand and c.cash > sc * 0.9: 
-            d["rnd"] = max(d["rnd"], 3500.0)  # Было 2500
-            d["marketing"] = max(d["marketing"], 1500)  # НОВОЕ
-            d["charity"] = max(d["charity"], 1000.0)  # Было 800
+        if not c.brand and c.cash > sc * 0.9 and last_profit > 0: 
+            d["rnd"] = max(d["rnd"], 3500.0)
+            d["marketing"] = max(d["marketing"], 1500)
+            d["charity"] = max(d["charity"], min(1000.0, last_profit * 0.3))
         # Дополнительные инвестиции в качество
         if c.quality < 110:
             d["rnd"] += 1000
