@@ -2,7 +2,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 import plotly.graph_objects as go
 import pandas as pd
-import random, json, os, math, base64, secrets
+import random, json, os, math, base64, secrets, statistics
 from datetime import datetime
 
 st.set_page_config(page_title="Мастер Капитала | Экономический симулятор", page_icon="🪆", layout="wide")
@@ -18,14 +18,21 @@ QUALITY_DECAY = 3.0; RND_GAIN = 0.001
 PATENT_THRESHOLD = 30000.0; PATENT_PITY = 60000.0; PATENT_CHANCE = 0.5; PATENT_QUALITY = 15.0
 PATENT_COST_CUT = 0.10; PATENT_MPI_BONUS = 30; ROYALTY_RATE = 0.005
 SUBSIDY_MONTHS = [6,12]; ANNOUNCE_MONTHS = [5,11]; GRANT_FIXED = 10000.0; CORP_FEE = 5000.0; RESCUE_CASH = 3000.0
+COFIN_PCT = 0.70; COFIN_WINDOW = 2; COFIN_CAP = 15000.0
+EMP_MONTHS = 6; EMP_PCT = 0.5; EMP_CAP = 1500.0; EMP_UTIL = 0.60
+EXPO_APPLY_M = 2; EXPO_WIN_M = 3; EXPO_TRIP_M = 4; EXPO_FEE_MAX = 5000.0
+INVITE_COST = 2000.0
+CHINA_NAME = "Хэнъянь"; CHINA_ENTER = (10,14); CHINA_MAT = 0.90
+UPSKILL_COST = 1500.0; UPSKILL_GAIN = 0.2
 BRAND_QUALITY = 120.0; BRAND_REPUTATION = 5.0; BRAND_BONUS = 1.05
 DEC_PREMIUM_QUALITY = 110.0; DEC_PREMIUM_MULT = 1.2
 REP_ATTRACT = 0.04; REP_MKT = 0.05; REP_MKT_CAP = 0.5; REP_EROSION = 0.01
 SOC_DECAY = 0.95; SOC_DIV = 6000.0
 CHARITY_RECS = {1:("Школы и детсады",1.2),2:("Больница и дом престарелых",1.0),3:("Музей и наследие",0.8),4:("Фестивали и спорт",0.6)}
 CHARITY_TIERS = [(300,"участник"),(1000,"попечитель"),(3000,"меценат")]
-SUB_TYPE_NAMES = {1:"бюджетный грант",2:"софинансирование оборудования",3:"льготный кредит"}
-PAL = ["#462446","#b05f6d","#eb6b56","#ffc153","#47b39d"]
+SUB_TYPE_NAMES = {1:"бюджетный грант",2:"софинансирование оборудования",3:"льготный кредит",
+                  4:"субсидия занятости",5:"цифровизация",6:"экспортная сертификация"}
+PAL = ["#4a1d5e","#d6456b","#ff5c39","#ffc153","#0ca678"]
 PROFS = ["assemblers","turners","painters","managers"]
 PROF_RU = {"assemblers":"Сборщики","turners":"Токари","painters":"Мастера росписи","managers":"Управленцы"}
 LABOR_WAGE = {"assemblers":80,"turners":100,"painters":150,"managers":250}
@@ -34,7 +41,7 @@ NOVICE_WAGE = 60; TRAIN_MONTHS = 3; TRAIN_COST = 1200; MENTOR_BONUS = 0.5; MANAG
 FUTURES_FEE = 2000; FUTURES_MONTHS = 3; TECHNICUM_FEE = 500; FORUM_FEE = 1500
 TENSION_STRIKE = 70; STRIKE_PROD_MULT = 0.40
 UNION_WORKERS = 20; UNION_CHANCE = 0.15; UNION_WAGE_UP = 0.10
-COALITION_SHARE = 0.35; COALITION_GAP = 1.25; COALITION_CHANCE = 0.20; COALITION_COOLDOWN = 3
+COALITION_SHARE = 0.30; COALITION_GAP = 1.25; COALITION_CHANCE = 0.20; COALITION_COOLDOWN = 4
 TENDER_MONTHS = [3,6,9,12]; TENDER_ADVANCE = 0.30; TENDER_PENALTY = 0.10
 TENDER_CUSTOMERS = [("Администрация округа",0.10,1.00,90),("Минкульт области",0.16,1.25,110),("Программа «Русский сувенир»",0.22,1.10,100)]
 TAX_REGIMES = {"usn6":"УСН «Доходы» 6%","usn15":"УСН «Доходы-расходы» 15% (мин. 1%)","osno":"ОСНО (НДС 20% + прибыль 25%)"}
@@ -105,67 +112,68 @@ h1,h2,h3,h4{font-family:'Unbounded',sans-serif;color:#462446}
 table.rt td,.kpi-v,.paper td.num{font-feature-settings:"tnum"}
 #MainMenu,footer{visibility:hidden}
 section[data-testid="stMain"] label{font-weight:700;color:#462446;font-size:15px}
-section[data-testid="stSidebar"]{background:linear-gradient(180deg,#462446 0%,#8a4f60 55%,#47b39d 135%)}
+section[data-testid="stSidebar"]{background:linear-gradient(180deg,#3a1a4a 0%,#a03a58 55%,#0ca678 135%)}
 section[data-testid="stSidebar"] .stMarkdown,section[data-testid="stSidebar"] label{color:#f6eef2}
-section[data-testid="stSidebar"] .stMarkdown h3{color:#ffc153}
+section[data-testid="stSidebar"] .stMarkdown h3{color:#FFD100}
 section[data-testid="stSidebar"] div[data-testid="stExpander"]{background:#fff;border-radius:12px}
 section[data-testid="stSidebar"] div[data-testid="stExpander"] .stMarkdown{color:#33253c}
-section[data-testid="stMain"] div[data-testid="stExpander"] details{background:#fff8ec;border:2px solid #ffc153;border-radius:14px}
+section[data-testid="stMain"] div[data-testid="stExpander"] details{background:#fff8ec;border:2px solid #FFD100;border-radius:14px}
+.stButton>button[kind="primary"],.stButton>button[kind="secondary"]:hover{background:#FFD100 !important;color:#221d15 !important;border-color:#221d15 !important;font-weight:800}
 .strip{display:flex;align-items:center;gap:8px;background:var(--c);color:#fff;border-radius:10px;padding:8px 14px;font-weight:800;font-size:15px;margin:14px 0 8px}
 .medal{display:inline-flex;width:26px;height:26px;border-radius:50%;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:14px}
 .m1{background:linear-gradient(135deg,#ffd166,#e09f3e)}.m2{background:linear-gradient(135deg,#c0c8d8,#8a94a6)}.m3{background:linear-gradient(135deg,#d99a6c,#a66a44)}
 .badge{font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;color:#fff;margin-left:6px}
-.b-bot{background:#8a94a6}.b-dead{background:#c4493a}.b-brand{background:#47b39d}.b-heart{background:#e4579b}
-.ach{display:inline-block;background:#eef7f2;border:1px solid #47b39d;color:#1f6f5a;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;margin:2px}
-.matr{width:64px;height:84px;margin:0 auto 8px;background:linear-gradient(180deg,#eb6b56 0%,#b05f6d 60%,#462446 100%);border-radius:50% 50% 46% 46%/62% 62% 38% 38%;position:relative}
+.b-bot{background:#8a94a6}.b-dead{background:#c4493a}.b-brand{background:#0ca678}.b-heart{background:#e4579b}.b-cn{background:#d6456b}
+.ach{display:inline-block;background:#eef7f2;border:1px solid #0ca678;color:#0b6b52;border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700;margin:2px}
+.matr{width:64px;height:84px;margin:0 auto 8px;background:linear-gradient(180deg,#ff5c39 0%,#d6456b 60%,#4a1d5e 100%);border-radius:50% 50% 46% 46%/62% 62% 38% 38%;position:relative}
 .matr::before{content:'';position:absolute;top:12px;left:50%;transform:translateX(-50%);width:34px;height:30px;background:#f6efdb;border-radius:50%}
-.avatar{width:76px;height:76px;border-radius:50%;background:#ffc153;color:#462446;font:800 26px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center;margin:6px auto 4px}
+.avatar{width:76px;height:76px;border-radius:50%;background:#FFD100;color:#221d15;font:800 26px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center;margin:6px auto 4px}
 .avname{text-align:center;font:700 15px 'Unbounded',sans-serif;color:#fff;margin-bottom:12px}
-.mk-hero{background:linear-gradient(135deg,#232329 0%,#2B2B33 55%,#3a3a44 100%);border-radius:24px;padding:36px 40px;color:#f5f2ea;box-shadow:0 14px 44px rgba(0,0,0,.45);margin-bottom:18px;border:1px solid #3a3a44;position:relative;overflow:hidden}
-.mk-hero::after{content:'';position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,193,83,.18),transparent 70%)}
+.mk-hero{background:linear-gradient(135deg,#1c1c22 0%,#26262e 55%,#33333d 100%);border-radius:24px;padding:36px 40px;color:#f5f2ea;box-shadow:0 14px 44px rgba(0,0,0,.45);margin-bottom:18px;border:1px solid #3a3a44;position:relative;overflow:hidden}
+.mk-hero::after{content:'';position:absolute;right:-60px;top:-60px;width:220px;height:220px;border-radius:50%;background:radial-gradient(circle,rgba(255,209,0,.20),transparent 70%)}
 .mk-logo{width:130px;height:auto;display:block;margin:0 auto 12px;filter:drop-shadow(0 6px 18px rgba(0,0,0,.5))}
-.mk-emblem{width:110px;height:110px;margin:0 auto 12px;border-radius:24px;background:linear-gradient(135deg,#FFC153,#e09f3e);color:#232329;font:800 44px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.5)}
-.mk-title{font:800 44px 'Unbounded',sans-serif;color:#FFC153;text-align:center;letter-spacing:1px}
+.mk-emblem{width:110px;height:110px;margin:0 auto 12px;border-radius:24px;background:linear-gradient(135deg,#FFD100,#e09f3e);color:#221d15;font:800 44px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 24px rgba(0,0,0,.5)}
+.mk-title{font:800 44px 'Unbounded',sans-serif;color:#FFD100;text-align:center;letter-spacing:1px}
 .mk-sub{text-align:center;color:#cfc9bd;font-size:14px;letter-spacing:2px;text-transform:uppercase;margin-top:4px}
-.mk-slogan{font:italic 600 18px 'Lora',serif;color:#47B39D;text-align:center;margin:14px 0 4px}
+.mk-slogan{font:italic 600 18px 'Lora',serif;color:#0ca678;text-align:center;margin:14px 0 4px}
 .mk-chips{text-align:center;margin-top:10px}
-.mk-chips span{display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,193,83,.35);color:#e8e2d5;border-radius:999px;padding:6px 14px;margin:6px 6px 0 0;font-weight:600;font-size:14px}
+.mk-chips span{display:inline-block;background:rgba(255,255,255,.08);border:1px solid rgba(255,209,0,.4);color:#e8e2d5;border-radius:999px;padding:6px 14px;margin:6px 6px 0 0;font-weight:600;font-size:14px}
 .calcard{background:#fff;border-radius:18px;padding:14px 16px;margin:10px 0 14px;border:1px solid #e7dfe2}
 .calhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px}
 .calyear{font:800 16px 'Unbounded',sans-serif;color:#462446}
 .callegend{font-size:11px;color:#8a7f86;display:flex;gap:12px;align-items:center}
 .lg{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:middle}
-.lg-past{background:#e3e1de}.lg-cur{background:linear-gradient(135deg,#47b39d,#2b8a76)}.lg-fut{background:#fff3d9;border:1px solid #f0d9a8}
+.lg-past{background:#e3e1de}.lg-cur{background:linear-gradient(135deg,#0ca678,#087f5b)}.lg-fut{background:#fff3d9;border:1px solid #f0d9a8}
 .calgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:6px}
 .calcell{border-radius:12px;padding:8px 4px;text-align:center}
 .calnum{font:800 13px 'Inter',sans-serif;opacity:.8}
 .calname{font:700 12px 'Inter',sans-serif;margin-top:2px}
 .calmarks{height:14px;font-size:10px;margin-top:2px}
-.cal-mk{color:#b08a2e}.cal-mk-a{color:#b05f6d}.cal-mk-d{color:#eb6b56}
-.cal-past{background:#f2f1ef;color:#9a9590}.cal-cur{background:linear-gradient(135deg,#47b39d,#2b8a76);color:#fff}.cal-fut{background:#fff8ec;border:1px solid #f0e3c8;color:#b08a2e}
+.cal-mk{color:#b08a2e}.cal-mk-a{color:#d6456b}.cal-mk-d{color:#ff5c39}
+.cal-past{background:#f2f1ef;color:#9a9590}.cal-cur{background:linear-gradient(135deg,#0ca678,#087f5b);color:#fff}.cal-fut{background:#fff8ec;border:1px solid #f0e3c8;color:#b08a2e}
 .kpi-row{display:flex;gap:14px;flex-wrap:wrap;margin:10px 0 16px}
 .tile{flex:1;min-width:200px;background:#fff;border-radius:14px;padding:14px 16px;display:flex;gap:12px;align-items:center;border-top:5px solid var(--c)}
 .tic{width:48px;height:48px;border-radius:12px;background:var(--c);display:flex;align-items:center;justify-content:center;font-size:23px;color:#fff;flex:none}
 .kpi-l{font-size:11px;letter-spacing:.7px;text-transform:uppercase;color:#8a7f86;font-weight:700}
 .kpi-v{font-size:25px;font-weight:800;color:#33253c}
 .delta{font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px}
-.delta.up{background:#e2f4ef;color:#2b8a76}.delta.down{background:#fbe3de;color:#c4493a}
-div[data-testid="stTabs"] [data-baseweb="tab"]{border-radius:999px;margin:4px 6px 4px 0;padding:7px 20px;background:#fff;color:#462446;font-weight:800;font-size:16px;border:2px solid #b05f6d}
-div[data-testid="stTabs"] [aria-selected="true"]{background:linear-gradient(90deg,#462446,#b05f6d);color:#ffc153;border-color:#462446}
+.delta.up{background:#d3f9e8;color:#087f5b}.delta.down{background:#fbe3de;color:#c4493a}
+div[data-testid="stTabs"] [data-baseweb="tab"]{border-radius:999px;margin:4px 6px 4px 0;padding:7px 20px;background:#fff;color:#462446;font-weight:800;font-size:16px;border:2px solid #d6456b}
+div[data-testid="stTabs"] [aria-selected="true"]{background:linear-gradient(90deg,#3a1a4a,#d6456b);color:#FFD100;border-color:#3a1a4a}
 table.rt{border-collapse:separate;border-spacing:5px;width:100%;font-size:15px}
 table.rt th{padding:12px 14px;font-weight:800;text-align:left;font-size:12px;letter-spacing:.4px;text-transform:uppercase}
 table.rt td{background:#fbf9f8;padding:11px 14px;color:#33253c}
 table.rt td.num,table.rt th.num{text-align:right}
 table.rt td.place{color:#fff;font-weight:800;clip-path:polygon(0 0,84% 0,100% 50%,84% 100%,0 100%);padding:10px 30px 10px 12px;font-size:17px}
 table.rt tr.me td{background:#fff3d9}
-table.rt tr.rt-total td{background:#3d3448;color:#ffc153;font-weight:800}
-.you{background:#eb6b56;color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:6px}
-.news{display:flex;gap:12px;background:#fff;border-radius:12px;border-left:5px solid #b05f6d;padding:11px 16px;margin:8px 0;font-size:15px;color:#33253c}
-.news.ok{border-left-color:#47b39d}.news.warn{border-left-color:#eb6b56}.news.gold{border-left-color:#ffc153}
-.banner{background:linear-gradient(90deg,#462446,#b05f6d,#eb6b56);color:#fff;border-radius:16px;padding:16px 20px;font-weight:700;font-size:17px;margin:10px 0}
+table.rt tr.rt-total td{background:#3d3448;color:#FFD100;font-weight:800}
+.you{background:#ff5c39;color:#fff;font-size:10px;font-weight:800;padding:2px 8px;border-radius:999px;margin-left:6px}
+.news{display:flex;gap:12px;background:#fff;border-radius:12px;border-left:5px solid #d6456b;padding:11px 16px;margin:8px 0;font-size:15px;color:#33253c}
+.news.ok{border-left-color:#0ca678}.news.warn{border-left-color:#ff5c39}.news.gold{border-left-color:#FFD100}
+.banner{background:linear-gradient(90deg,#3a1a4a,#d6456b,#ff5c39);color:#fff;border-radius:16px;padding:16px 20px;font-weight:700;font-size:17px;margin:10px 0}
 .chips{display:flex;gap:10px;flex-wrap:wrap;margin:8px 0}
 .chip{background:#fff;border:1px solid #e7dfe2;border-radius:999px;padding:5px 14px;font-size:14px;font-weight:700;color:#462446}
-.paper{background:#fdfbf5;color:#2a2620;border-radius:10px;padding:20px 24px;margin-bottom:16px;font-family:'Lora',serif;border-left:8px solid var(--pc,#462446)}
+.paper{background:#f7f0dd;color:#2a2620;border-radius:10px;padding:20px 24px;margin-bottom:16px;font-family:'Lora',serif;border-left:8px solid var(--pc,#462446)}
 .paper-h{font-size:17px;font-weight:600;letter-spacing:.4px}
 .paper-s{font-size:13px;color:#6b6252;margin-bottom:10px;font-style:italic}
 .paper table{width:100%;border-collapse:collapse}
@@ -179,41 +187,77 @@ table.rt tr.rt-total td{background:#3d3448;color:#ffc153;font-weight:800}
 .ct{font:700 15px 'Inter',sans-serif;color:#462446;margin-bottom:2px}
 .cs{font-size:12px;color:#8a7f86;margin-bottom:6px}
 .dots{letter-spacing:3px;font-size:15px}
-.dots .on{color:#ffc153}.dots .off{color:#d8cfd6}
-.ribbon{height:30px;width:74px;background:#eb6b56;clip-path:polygon(0 0,100% 0,100% 100%,50% 76%,0 100%);margin:0 0 6px 26px}
+.dots .on{color:#FFD100}.dots .off{color:#d8cfd6}
+.ribbon{height:30px;width:74px;background:#ff5c39;clip-path:polygon(0 0,100% 0,100% 100%,50% 76%,0 100%);margin:0 0 6px 26px}
 .book-page{animation:bookflip .55s ease;transform-origin:left center}
 @keyframes bookflip{0%{transform:perspective(1600px) rotateY(-24deg);opacity:.15}100%{transform:perspective(1600px) rotateY(0);opacity:1}}
 .mast{border-bottom:3px double #2a2620;margin:6px 0 16px;text-align:center}
 .mast-t{font-family:'Unbounded',sans-serif;font-size:36px;font-weight:800;color:#221d15;letter-spacing:1px}
-.mast-s{font:italic 400 12px 'Lora',serif;color:#6b6252;margin-top:2px}
+.mast-s{font-size:12px;color:#6b6252;margin-top:2px;font-style:italic;font-family:'Lora',serif}
 .mast-m{display:flex;justify-content:space-between;font-size:12px;color:#6b6252;border-top:1px solid #c9bfa8;margin-top:8px;padding-top:5px;font-family:'Lora',serif;font-style:italic}
 .clip{background:#f6efdb;border:1px solid #d8cdb2;padding:18px 20px 14px;margin:0 0 16px;position:relative}
-.clip::before{content:'';position:absolute;top:-11px;left:50%;transform:translateX(-50%) rotate(-2deg);width:96px;height:20px;background:rgba(255,193,83,.55)}
+.clip::before{content:'';position:absolute;top:-11px;left:50%;transform:translateX(-50%) rotate(-2deg);width:96px;height:20px;background:rgba(255,209,0,.55)}
 .clip-head{font:800 10px 'Inter',sans-serif;letter-spacing:1.5px;text-transform:uppercase;color:#8a7f6a;margin-bottom:6px}
 .clip-h{font-family:'Lora',serif;font-weight:700;font-size:18px;line-height:1.3;color:#221d15;margin-bottom:8px}
 .clip.front .clip-h{font-size:24px}
 .clip-photo{font-size:34px;text-align:center;background:#e7dcc0;border:1px solid #c9bfa8;padding:8px;margin:8px 0 4px;filter:sepia(.35)}
 .clip-cap{font-size:11px;font-style:italic;color:#6b6252;text-align:center;font-family:'Lora',serif}
-.clip-body{columns:2;column-gap:18px;font-family:'Lora',serif;font-size:13.5px;line-height:1.5;color:#33291c;margin-top:8px}
+.clip-body{columns:2;column-gap:18px;font-family:'Lora',serif;font-size:13.5px;line-height:1.5;color:#33291c;margin-top:8px;text-align:justify;hyphens:auto}
+.clip.front .clip-body::first-letter{font:800 44px 'Lora',serif;float:left;line-height:.9;padding:2px 6px 0 0;color:#462446}
 .clip-byline{font-size:11px;color:#8a7f6a;margin-top:10px;font-style:italic;font-family:'Lora',serif;border-top:1px solid #d8cdb2;padding-top:6px}
+.sec-head{font:800 13px 'Inter',sans-serif;letter-spacing:2px;text-transform:uppercase;color:#462446;border-top:3px double #2a2620;border-bottom:1px solid #2a2620;padding:4px 0;margin:14px 0 8px}
+.ad-block{border:2px solid #2a2620;padding:8px 10px;margin:10px 0;font-family:'Lora',serif;font-size:12px;text-align:center;background:#efe6cc}
+.folio{text-align:center;font:italic 11px 'Lora',serif;color:#6b6252;margin-top:10px}
+.np-cols3{columns:3;column-gap:16px;column-rule:1px solid #c9bfa8;text-align:justify;hyphens:auto;font-family:'Lora',serif;font-size:13.5px;line-height:1.5;color:#33291c}
+.np-cols2{columns:2;column-gap:16px;column-rule:1px solid #c9bfa8;text-align:justify;hyphens:auto;font-family:'Lora',serif;font-size:13.5px;line-height:1.5;color:#33291c}
+.np-drop::first-letter{font:800 42px 'Lora',serif;float:left;line-height:.85;padding:2px 6px 0 0;color:#462446}
+.np-h{font-family:'Lora',serif;font-weight:800;font-size:26px;line-height:1.15;color:#221d15;margin:2px 0 4px}
+.np-h.mid{font-size:19px}
+.np-stand{font-family:'Lora',serif;font-style:italic;font-size:13px;color:#6b6252;margin-bottom:8px}
+.np-vnom{border-left:3px double #221d15;padding-left:10px;margin-top:8px}
+.np-vnom .vh{font:800 12px 'Inter',sans-serif;letter-spacing:1.5px;text-transform:uppercase;color:#462446;border-bottom:1px solid #221d15;padding-bottom:3px;margin-bottom:6px}
+.np-vnom .vi{display:flex;gap:8px;font-family:'Lora',serif;font-size:12.5px;color:#33291c;padding:3px 0;border-bottom:1px dotted #c9bfa8}
+.np-vnom .vi .pg{font:800 11px 'Inter',sans-serif;color:#462446}
+.np-fig{margin:0 0 10px}
+.np-fig img{width:100%;height:100%;object-fit:cover;display:block;border:1px solid #c9bfa8;filter:grayscale(.4) sepia(.28) contrast(1.1)}
+.np-fig .cap{font:italic 11px 'Lora',serif;color:#6b6252;margin-top:3px}
+.np-ticker{display:flex;gap:14px;flex-wrap:wrap;background:#221d15;color:#f3ead0;font:700 12px 'Inter',sans-serif;padding:6px 12px;margin:12px 0}
+.np-pull{border-top:3px double #221d15;border-bottom:3px double #221d15;padding:8px 4px;margin:10px 0;font-family:'Lora',serif;font-weight:700;font-size:16px;line-height:1.3;color:#221d15;text-align:center}
+.np-pull .au{display:block;font:italic 400 12px 'Lora',serif;color:#6b6252;margin-top:4px}
+.np-vrez{border:1.5px solid #221d15;padding:6px 8px;margin:8px 0;font-family:'Lora',serif;font-size:12px;background:#efe6cc}
+.np-vrez .vh{font:800 10px 'Inter',sans-serif;letter-spacing:1px;text-transform:uppercase;margin-bottom:3px}
+.np-pagebadge{display:inline-block;background:#221d15;color:#fff;font:800 12px 'Inter',sans-serif;padding:3px 10px}
+.np-cols1{columns:1;text-align:justify;hyphens:auto;font-family:'Lora',serif;font-size:15px;line-height:1.55;color:#33291c}
+.np-cols2{font-size:15px;line-height:1.55}
+.np-cols3{font-size:15px;line-height:1.55}
+.np-h{font-size:32px}
+.np-h.mid{font-size:22px}
+.np-stand{font-size:14.5px}
+.np-vnom .vi{font-size:14px}
+.np-ticker{font-size:13px}
+.np-fig .cap{font-size:12.5px}
+.np-pull{font-size:18px}
+.obit{border:3px double #2a2620;padding:10px;margin:10px 0;text-align:center;font-family:'Lora',serif;color:#2a2620;background:#efe9da}
 .print-head{border-bottom:3px double #222;margin:0 0 14px;padding-bottom:8px}
 .print-head .ph-t{font:800 20px 'Unbounded',sans-serif;color:#222}
 .print-head .ph-s{font:italic 12px 'Lora',serif;color:#555}
 .tag{display:inline-flex;align-items:center;gap:10px;background:var(--c);color:#fff;font:800 14px 'Inter',sans-serif;padding:8px 18px;border-radius:12px;margin:2px 0 12px}
 .tag-hole{width:12px;height:12px;border-radius:50%;background:#fff;opacity:.9;box-shadow:inset 0 0 0 3px var(--c)}
-.diploma{background:linear-gradient(135deg,#232329,#2B2B33);border:3px double #FFC153;border-radius:18px;padding:30px 34px;color:#f5f2ea;margin:0 0 22px;position:relative;box-shadow:0 14px 40px rgba(0,0,0,.45)}
-.diploma::before{content:'';position:absolute;inset:10px;border:1px solid rgba(255,193,83,.4);border-radius:12px;pointer-events:none}
+.diploma{background:linear-gradient(135deg,#232329,#2B2B33);border:3px double #FFD100;border-radius:18px;padding:30px 34px;color:#f5f2ea;margin:0 0 22px;position:relative;box-shadow:0 14px 40px rgba(0,0,0,.45)}
+.diploma::before{content:'';position:absolute;inset:10px;border:1px solid rgba(255,209,0,.4);border-radius:12px;pointer-events:none}
 .dip-emblem{width:90px;height:auto;display:block;margin:0 auto 8px}
-.dip-mono{width:80px;height:80px;margin:0 auto 8px;border-radius:18px;background:linear-gradient(135deg,#FFC153,#e09f3e);color:#232329;font:800 34px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center}
-.dip-title{font:800 30px 'Unbounded',sans-serif;color:#FFC153;text-align:center;letter-spacing:1px}
+.dip-mono{width:80px;height:80px;margin:0 auto 8px;border-radius:18px;background:linear-gradient(135deg,#FFD100,#e09f3e);color:#221d15;font:800 34px 'Unbounded',sans-serif;display:flex;align-items:center;justify-content:center}
+.dip-title{font:800 30px 'Unbounded',sans-serif;color:#FFD100;text-align:center;letter-spacing:1px}
 .dip-sub{text-align:center;color:#cfc9bd;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin:4px 0 14px}
 .dip-name{font:800 26px 'Unbounded',sans-serif;color:#fff;text-align:center;margin:6px 0}
 .dip-line{text-align:center;color:#e8e2d5;font-size:15px;margin:4px 0}
-.dip-titles{margin:12px auto 0;max-width:560px;color:#47B39D;font-size:14px;text-align:center}
+.dip-titles{margin:12px auto 0;max-width:560px;color:#0ca678;font-size:14px;text-align:center}
 .dip-foot{display:flex;justify-content:space-between;align-items:flex-end;margin-top:20px;gap:12px}
-.dip-stamp{width:110px;height:110px;border:3px double rgba(255,193,83,.6);border-radius:50%;color:rgba(255,193,83,.75);font:700 8.5px 'Inter',sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;transform:rotate(-12deg);padding:10px;flex:none}
+.dip-stamp{width:110px;height:110px;border:3px double rgba(255,209,0,.6);border-radius:50%;color:rgba(255,209,0,.75);font:700 8.5px 'Inter',sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;transform:rotate(-12deg);padding:10px;flex:none}
 .dip-sign{font:italic 600 14px 'Lora',serif;color:#e8e2d5;text-align:right}
-@media print { section[data-testid="stSidebar"], div[data-testid="stToolbar"], .stButton {display:none !important} .stApp,body{background:#fff !important} }
+@media print { section[data-testid="stSidebar"], div[data-testid="stToolbar"], .stButton {display:none !important} .stApp,body{background:#fff !important}
+  .diploma{break-inside:avoid;page-break-inside:avoid;padding:14px 18px} .diploma+.diploma{page-break-before:always}
+  .dip-title{font-size:22px} .dip-name{font-size:18px} .dip-emblem{width:60px} .dip-stamp{width:80px;height:80px} }
 </style>"""
 st.markdown(CSS, unsafe_allow_html=True)
 
@@ -249,9 +293,9 @@ function paint(){
 setInterval(paint, 600); paint();
 </script>""", height=0)
 
-SAFE = {"🏆":"★","💰":"$","📉":"▼","🚀":"▲","👑":"♛","️":"!","💀":"†","📯":"♪","🔮":"◆","®":"®",
+SAFE = {"🏆":"★","💰":"$","📉":"▼","🚀":"▲","👑":"","️":"!","":"†","":"♪","":"◆","®":"®",
         "🎄":"◆","🏅":"★","♥":"♥","📊":"◆","👥":"№","🤝":"◆","✊":"!","🏭":"■","✅":"✓","⚖️":"!",
-        "🧑🤝‍🧑":"№","🐉":"◆","⚙️":"◆","🌲":"◆","🎪":"◆","💐":"◆","🧧":"◆","🚚":"◆","📱":"◆",
+        "🧑🤝‍":"№","":"◆","️":"◆","":"◆","":"◆","💐":"◆","🧧":"◆","🚚":"◆","📱":"◆",
         "🏛":"◆","🎁":"◆","🚒":"◆","🧾":"◆","💡":"◆","🔬":"◆","🎓":"◆","🧠":"◆","📅":"◆"}
 def ic(x): return SAFE.get(x, "★")
 
@@ -273,7 +317,7 @@ PHOTO_KEYS = {
     "photo_leader":["leader","lider","лидер","award","nagrada"],
     "photo_loss":["loss","ubytok","убыт","debt"],
     "photo_final":["final","itog","итоги","finish","prazdnik","kubok"],
-    "photo_hr":["hr","birzha","биржа","кадр","найм","перемани","ваканс","обучени"],
+    "photo_hr":["hr","birzha","биржа","кадр","найм","перемани","ваканс","обучени","техникум"],
     "photo_china":["китай","холдинг","хэнъянь","henyan","china"],
     "photo_revenue":["revenue","vyrouchka","выруч","касса","profit"],
     "photo_charity":["charity","blagotvor","благотвор","меценат","heart"],
@@ -296,12 +340,27 @@ PHOTO_KEYS = {
     "photo_sick":["больнич","грипп","эпидем","sick"],
     "photo_merger":["слияни","поглощ","merger","акцион"],
     "photo_merger_sign":["ребренд","новая вывеска","поглощена"],
+    "photo_marketplace":["маркетплейс","marketplace","онлайн-канал"],
+    "photo_bloggers":["блогер","bloggers","медиаволна"],
+    "photo_drought":["засуха","drought","усыхани"],
+    "photo_forum":["форум","forum","промысел и бизнес"],
+    "photo_scandal":["скандал","scandal","травма"],
+    "photo_exportwin":["экспортное окно","рубль ослаб","export"],
+    "photo_quarantine":["короед","карантин","quarantine"],
+    "photo_breakdown":["поломка","breakdown","ремонт оборуд"],
+    "photo_lessons":["уроки промысла","школ","lessons"],
+    "photo_folkyr":["год народной","folkyr","фестиваль народ"],
+    "photo_contest":["приз на конкурсе","contest","конкурс маст"],
+    "photo_museum":["предзаказ музея","museum","музейн"],
+    "photo_rational":["рацпредложение","rational"],
+    "photo_delay":["срыв перевозки","delay","грузовик"],
+    "photo_gift_region":["подарок области","gift_region","вручени"],
 }
 PHOTO_FALLBACK = {
     "photo_rate_down":"photo_gov","photo_leader":"photo_market","photo_loss":"photo_crisis",
     "photo_agreement":"photo_gov","photo_fire":"photo_crisis","photo_growth":"photo_market",
     "photo_rate_up":"photo_gov","photo_final":"photo_matryoshki","photo_hr":"photo_workshop",
-    "photo_china":"photo_market","photo_revenue":"photo_market","photo_charity":"photo_gov",
+    "photo_china":"photo_gift_region","photo_revenue":"photo_market","photo_charity":"photo_gov",
     "photo_coalition_start":"photo_agreement","photo_coalition_end":"photo_agreement",
     "photo_strike":"photo_hr","photo_strike_after":"photo_crisis","photo_tender":"photo_gov",
     "photo_union":"photo_hr","photo_warehouse":"photo_crisis","photo_wood":"photo_market",
@@ -309,6 +368,11 @@ PHOTO_FALLBACK = {
     "photo_paint":"photo_workshop","photo_viral":"photo_market","photo_master_leave":"photo_hr",
     "photo_corp_order":"photo_agreement","photo_recall":"photo_crisis","photo_sick":"photo_hr",
     "photo_merger":"photo_agreement","photo_merger_sign":"photo_merger",
+    "photo_marketplace":"photo_market","photo_bloggers":"photo_viral","photo_drought":"photo_wood",
+    "photo_forum":"photo_gov","photo_scandal":"photo_crisis","photo_exportwin":"photo_market",
+    "photo_quarantine":"photo_wood","photo_breakdown":"photo_crisis","photo_lessons":"photo_hr",
+    "photo_folkyr":"photo_growth","photo_contest":"photo_leader","photo_museum":"photo_leader",
+    "photo_rational":"photo_workshop","photo_delay":"photo_crisis","photo_gift_region":"photo_charity",
 }
 def _img_files():
     res = {}
@@ -361,8 +425,23 @@ def photo_ratio(base):
 def photo_for(n, front=False):
     t = (str(n.get("head",""))+" "+str(n.get("text",""))).lower()
     if any(k in t for k in ["отчетный период завершен","итоги года","звания года","отрасль в цифрах"]): return "photo_final"
+    if any(k in t for k in ["хэнъянь","henyan","китай"]): return "photo_china"
+    if any(k in t for k in ["маркетплейс","онлайн-канал"]): return "photo_marketplace"
+    if any(k in t for k in ["блогер","медиаволна"]): return "photo_bloggers"
+    if any(k in t for k in ["засуха","усыхани"]): return "photo_drought"
+    if any(k in t for k in ["форум","промысел и бизнес"]): return "photo_forum"
+    if any(k in t for k in ["скандал","травма"]): return "photo_scandal"
+    if any(k in t for k in ["экспортное окно","рубль ослаб","spielwarenmesse","нюрнберг"]): return "photo_exportwin"
+    if any(k in t for k in ["короед","карантин"]): return "photo_quarantine"
+    if any(k in t for k in ["поломка","ремонт оборуд"]): return "photo_breakdown"
+    if any(k in t for k in ["уроки промысла","школ"]): return "photo_lessons"
+    if any(k in t for k in ["год народной"]): return "photo_folkyr"
+    if any(k in t for k in ["приз на конкурсе"]): return "photo_contest"
+    if any(k in t for k in ["предзаказ музея","музейн"]): return "photo_museum"
+    if any(k in t for k in ["рацпредложение"]): return "photo_rational"
+    if any(k in t for k in ["срыв перевозки"]): return "photo_delay"
+    if any(k in t for k in ["подарок области","вручени"]): return "photo_gift_region"
     if any(k in t for k in ["минпромторг","субсид","конкурс"]): return "photo_gov"
-    if any(k in t for k in ["китай","холдинг","хэнъянь","henyan"]): return "photo_china"
     if any(k in t for k in ["коалиция распал","коалиция прекрат"]): return "photo_coalition_end"
     if any(k in t for k in ["коалици","сговор"]): return "photo_coalition_start"
     if any(k in t for k in ["забастов"]): return "photo_strike"
@@ -377,23 +456,23 @@ def photo_for(n, front=False):
     if any(k in t for k in ["больнич","грипп","эпидем"]): return "photo_sick"
     if any(k in t for k in ["ребренд","новая вывеска"]): return "photo_merger_sign"
     if any(k in t for k in ["слияни","поглощ","merger"]): return "photo_merger"
-    if any(k in t for k in ["биржа труда","кадр","перемани","ваканс","найм","обучени","техникум"]): return "photo_hr"
-    if any(k in t for k in ["патент","роспис","мастер","бренд","рацпредложение","кросс-лицен"]): return "photo_workshop"
+    if any(k in t for k in ["биржа труда","кадр","перемани","ваканс","найм","обучени","техникум","повышение"]): return "photo_hr"
+    if any(k in t for k in ["патент","роспис","мастер","бренд","кросс-лицен"]): return "photo_workshop"
     if any(k in t for k in ["ставка цб выросла","кредиты дороже"]): return "photo_rate_up"
     if any(k in t for k in ["ставка цб снизилась","кредиты дешевле"]): return "photo_rate_down"
     if any(k in t for k in ["пожар"]): return "photo_fire"
-    if any(k in t for k in ["соглашени","экспортный контракт","контракт с","форум"]): return "photo_agreement"
-    if any(k in t for k in ["крупнейший убыток","банкрот","минусе","реструктуриза","поломка","авария","срыв перевозки","короеду","засуха","энергия"]): return "photo_crisis"
-    if any(k in t for k in ["рекорд отрасли","книга рекордов","смена лидера","приз на конкурсе","предзаказ музея","подарок области"]): return "photo_leader"
-    if any(k in t for k in ["бум","рождаем","пластиковых игрушек","фест","спрос раст","турист","эко","тренд","маркетплейс","год народной","уроки промысла","блогеров"]): return "photo_growth"
-    if any(k in t for k in ["кризис","экономят","бедствие","контрафакт","скандал"]): return "photo_crisis"
+    if any(k in t for k in ["соглашени","экспортный контракт","контракт с"]): return "photo_agreement"
+    if any(k in t for k in ["крупнейший убыток","банкрот","минусе","реструктуриза","авария","энергия"]): return "photo_crisis"
+    if any(k in t for k in ["рекорд отрасли","книга рекордов","смена лидера","выставк"]): return "photo_leader"
+    if any(k in t for k in ["бум","рождаем","пластиковых игрушек","фест","спрос раст","турист","эко","тренд","перепись"]): return "photo_growth"
+    if any(k in t for k in ["кризис","экономят","бедствие","контрафакт"]): return "photo_crisis"
     if any(k in t for k in ["склад съедает","избыток склада","складская авария","склад"]): return "photo_warehouse"
     if any(k in t for k in ["сырь","лес","лип","берез","древес"]): return "photo_wood"
     if any(k in t for k in ["краск","лак","покрыт"]): return "photo_paint"
     if any(k in t for k in ["рекордная выручка","выручка месяца"]): return "photo_revenue"
     if any(k in t for k in ["благотворительная ведомость","щедрость","меценат","свадьба","юбилей","премия"]): return "photo_charity"
     if any(k in t for k in ["налог","инспектор"]): return "photo_gov"
-    if any(k in t for k in ["продаж","выруч","спрос","ярмарк","рынок","благотвор","перепись"]): return "photo_market"
+    if any(k in t for k in ["продаж","выруч","спрос","ярмарк","рынок","благотвор"]): return "photo_market"
     return "photo_matryoshki"
 def img_status():
     files = _img_files(); found = [b for b in PHOTO_KEYS if _find_file(b)]
@@ -427,6 +506,7 @@ def calendar_html(turn):
         if m in SUBSIDY_MONTHS: marks += "<span class='cal-mk'>♜</span>"
         elif m in ANNOUNCE_MONTHS: marks += "<span class='cal-mk cal-mk-a'>•</span>"
         if m in TENDER_MONTHS: marks += "<span class='cal-mk cal-mk-d'>▣</span>"
+        if m == EXPO_APPLY_M: marks += "<span class='cal-mk cal-mk-a'>✈</span>"
         if m == 12: marks += "<span class='cal-mk cal-mk-d'>✦</span>"
         cells += f"<div class='calcell {state}'><div class='calnum'>{m:02d}</div><div class='calname'>{MONTH_NAMES[m-1]}</div><div class='calmarks'>{marks}</div></div>"
     return (f"<div class='calcard'><div class='calhead'><span class='calyear'>Год {year}</span>"
@@ -471,9 +551,33 @@ def clip_html(n, month_label, front=False):
     return (f"<div class='clip {n['kind']}{' front' if front else ''}'><div class='clip-head'>{n['head']}</div>"
             f"<div class='clip-h'>{n['text']}</div>{photo_html}<div class='clip-body'>{body}</div>"
             f"<div class='clip-byline'>от нашего корреспондента · {month_label}</div></div>")
-HEADS = [("#","#462446","#fff",""),("Компания","#462446","#fff",""),("MPI итог","#eb6b56","#fff","num"),
-         ("MPI хода","#b05f6d","#fff","num"),("Цена","#ffc153","#462446","num"),("Продано","#47b39d","#fff","num"),
-         ("Доля","#462446","#fff","num"),("Качество","#b05f6d","#fff","num")]
+def figure_html(base, caption="", h=160):
+    b64 = photo_b64(base)
+    if not b64: return f"<div class='np-fig'><div class='clip-photo'>{caption}</div></div>"
+    return f"<div class='np-fig'><div style='height:{h}px;overflow:hidden'><img src='{b64}'></div><div class='cap'>{caption}</div></div>"
+def article_card(a, wide=False):
+    fig = figure_html(a["photo"], a.get("cap",""), 150) if a.get("photo") else ""
+    if wide:
+        return f"<div>{fig}<div class='np-h'>{a['head']}</div><div class='np-stand'>{a['stand']}</div><div class='np-cols2 np-drop'>{a['body']}</div></div>"
+    return f"<div>{fig}<div class='np-h mid'>{a['head']}</div><div class='np-stand'>{a['stand']}</div><div class='np-cols1'>{a['body']}</div></div>"
+def article_html(head, stand, body, cols=2, drop=False, mid=False):
+    cc = "np-cols3" if cols == 3 else "np-cols2"
+    dd = " np-drop" if drop else ""
+    hh = "np-h mid" if mid else "np-h"
+    return f"<div><div class='{hh}'>{head}</div><div class='np-stand'>{stand}</div><div class='{cc}{dd}'>{body}</div></div>"
+def vrezka(title, text): return f"<div class='np-vrez'><div class='vh'>{title}</div>{text}</div>"
+def pull_quote(text, author): return f"<div class='np-pull'>«{text}»<span class='au'>— {author}</span></div>"
+def ticker_html(game):
+    hl = [c for c in game["companies"] if c.history and c.history[-1]["turn"] == game["turn"]]
+    if not hl: return ""
+    avgp = game["avg_price"]; mk = game["market"]
+    items = [f"СР.ЦЕНА {avgp:.1f}", f"РЫНОК {mk}", f"СТАВКА {game.get('loan_rate',LOAN_RATE)*100:.1f}%",
+             f"СОЦКАП {game.get('social_capital',0):,.0f}", f"ВАКАНС {sum(c.vac_pct for c in hl)/len(hl):.0f}%",
+             f"КАЧЕСТВО {sum(c.quality for c in hl)/len(hl):.1f}"]
+    return "<div class='np-ticker'>"+" · ".join(f"<span>{x}</span>" for x in items)+"</div>"
+HEADS = [("#","#462446","#fff",""),("Компания","#462446","#fff",""),("MPI итог","#ff5c39","#fff","num"),
+         ("MPI хода","#d6456b","#fff","num"),("Цена","#ffc153","#462446","num"),("Продано","#0ca678","#fff","num"),
+         ("Потеряно","#d6456b","#fff","num"),("Доля спроса","#462446","#fff","num"),("Качество","#d6456b","#fff","num")]
 def charity_tier(mc):
     t = ""
     for thr, name in CHARITY_TIERS:
@@ -488,46 +592,51 @@ def rank_html(game, viewer_name):
         place = f"<span class='medal m{i+1}'>{i+1}</span>" if i < 3 else str(i+1)
         me = c.name == viewer_name
         tag = "<span class='you'>вы</span>" if me else ""
-        bot = "<span class='badge b-bot'>бот</span>" if c.is_bot else ""
+        bot = "<span class='badge b-cn'>Китай</span>" if getattr(c,"china",False) else ("<span class='badge b-bot'>бот</span>" if c.is_bot else "")
         dead = "<span class='badge b-dead'>банкрот</span>" if c.bankrupt else ""
         brand = "<span class='badge b-brand'>®</span>" if h.get("brand") else ""
         heart = "<span class='badge b-heart'>♥</span>" if charity_tier(h.get("charity",0)) else ""
         tr += (f"<tr class='{'me' if me else ''}'><td class='place' style='background:{PAL[i%5]}'>{place}</td>"
                f"<td><b>{c.name}</b>{bot}{dead}{brand}{heart}{tag}</td>"
                f"<td class='num'><b>{c.mpi_total:.1f}</b></td><td class='num'>{h.get('mpi',0):.1f}</td>"
-               f"<td class='num'>{h['price']:.1f}</td><td class='num'>{int(h['sales'])}</td>"
+               f"<td class='num'>{h['price']:.1f}</td><td class='num'>{int(h['sales'])}</td><td class='num'>{int(h['lost'])}</td>"
                f"<td class='num'>{h['market_share']:.1f}%</td><td class='num'>{c.quality:.1f}</td></tr>")
     tot_sold = sum(int(c.history[-1]["sales"]) for c in rows)
+    tot_lost = sum(int(c.history[-1]["lost"]) for c in rows)
     avg_p = sum(c.history[-1]["price"] for c in rows)/max(1,len(rows))
     avg_q = sum(c.quality for c in rows)/max(1,len(rows))
     tr += (f"<tr class='rt-total'><td></td><td>ИТОГО ПО РЫНКУ</td><td class='num'>—</td><td class='num'>—</td>"
-           f"<td class='num'>{avg_p:.1f}</td><td class='num'>{tot_sold}</td><td class='num'>100%</td><td class='num'>{avg_q:.1f}</td></tr>")
+           f"<td class='num'>{avg_p:.1f}</td><td class='num'>{tot_sold}</td><td class='num'>{tot_lost}</td><td class='num'>100%</td><td class='num'>{avg_q:.1f}</td></tr>")
     return f"<table class='rt'><thead><tr>{th}</tr></thead><tbody>{tr}</tbody></table>"
 def fig_base(fig, h=310, legend=False):
     fig.update_layout(height=h, margin=dict(l=8,r=8,t=30,b=8), paper_bgcolor="rgba(0,0,0,0)",
                       plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Inter",size=12,color="#4a3b52"),
                       showlegend=legend, bargap=0.35)
     return fig
-def compute_titles(game):
+def compute_titles(game, year=None):
     comps = [c for c in game["companies"] if c.history]
+    if year:
+        lo, hi = (year-1)*12+1, year*12
+        comps = [c for c in comps if any(lo <= h["turn"] <= hi for h in c.history)]
     if not comps: return []
-    emp = max(comps, key=lambda c: sum(h["workers"] for h in c.history)/len(c.history))
-    taxp = max(comps, key=lambda c: sum(h["tax"] for h in c.history))
-    mec = max(comps, key=lambda c: sum(h.get("charity",0) for h in c.history))
-    titles = [f"«Работодатель года» — «{emp.name}»", f"«Налогоплательщик года» — «{taxp.name}»"]
-    if sum(h.get("charity",0) for h in mec.history) > 0: titles.append(f"«Меценат года» — «{mec.name}»")
-    if game.get("record_company"): titles.append(f"«Рекордсмен года» — «{game['record_company']}»")
+    def agg(c, key):
+        hs = [h for h in c.history if (year is None or (year-1)*12+1 <= h["turn"] <= year*12)]
+        return sum(h.get(key,0) for h in hs)/max(1,len(hs)) if key == "_workers" else sum(h.get(key,0) for h in hs)
+    emp = max(comps, key=lambda c: agg(c,"_workers"))
+    taxp = max(comps, key=lambda c: agg(c,"tax"))
+    mec = max(comps, key=lambda c: agg(c,"charity"))
+    suf = f" года {year}" if year else " года"
+    titles = [f"«Работодатель{suf}» — «{emp.name}»", f"«Налогоплательщик{suf}» — «{taxp.name}»"]
+    if agg(mec,"charity") > 0: titles.append(f"«Меценат{suf}» — «{mec.name}»")
+    if game.get("record_company"): titles.append(f"«Рекордсмен отрасли» — «{game['record_company']}»")
     brand_comps = [c for c in comps if getattr(c,"brand",False)]
     if brand_comps: titles.append("Носители бренда ®: "+", ".join(f"«{c.name}»" for c in brand_comps))
     return titles
-def industry_stats(game):
-    agg_inv = sum(h.get("investment",0) for c in game["companies"] for h in c.history)
-    agg_rnd = sum(h.get("rnd",0) for c in game["companies"] for h in c.history)
-    agg_rev = sum(h.get("revenue",0) for c in game["companies"] for h in c.history)
-    agg_tax = sum(h.get("tax",0) for c in game["companies"] for h in c.history)
-    agg_units = sum(int(h.get("sales",0)) for c in game["companies"] for h in c.history)
-    agg_char = sum(h.get("charity",0) for c in game["companies"] for h in c.history)
-    return agg_inv, agg_rnd, agg_rev, agg_tax, agg_units, agg_char
+def industry_stats(game, year=None):
+    def hs_of(c):
+        return [h for h in c.history if (year is None or (year-1)*12+1 <= h["turn"] <= year*12)]
+    agg = lambda k: sum(h.get(k,0) for c in game["companies"] for h in hs_of(c))
+    return agg("investment"), agg("rnd"), agg("revenue"), agg("tax"), sum(int(h.get("sales",0)) for c in game["companies"] for h in hs_of(c)), agg("charity")
 def diploma_html(game, c, place):
     head = "ДИПЛОМ ПОБЕДИТЕЛЯ" if place == 1 else ("ГРАМОТА ЛАУРЕАТА" if place <= 3 else "ГРАМОТА УЧАСТНИКА")
     date = datetime.now().strftime("%d.%m.%Y")
@@ -564,7 +673,9 @@ def load_game(slot):
                  "start_cash":START_CASH,"sub_types_open":None,"decisions_current":{},"social_capital":0.0,"retention":1.0,
                  "royalty":False,"sandbox":False,"pool":dict(POOL_START),"achievements":{},"coalition":None,
                  "coalition_cd":0,"tender":None,"merger_done":False,"crosslicense":False,"forum_open":False,
-                 "marketplace":0,"bloggers":0,"exportwin":0,"scandal":0,"lessons":0,"census":0,"folk_year":0}.items():
+                 "marketplace":0,"bloggers":0,"exportwin":0,"scandal":0,"lessons":0,"census":0,"folk_year":0,
+                 "china_in":False,"invite":None,"expo_winner":None,"expo_price":0.0,
+                 "rec_rev":0.0,"rec_rev_who":"","rec_loss":0.0,"rec_loss_who":"","titles_by_year":{}}.items():
         data.setdefault(k, v)
     if not data.get("humans"): data["humans"] = [data.get("player","Моя компания")]
     return data
@@ -601,6 +712,9 @@ class Company:
         self.contracts = []; self.reliability = 0.0
         self.futures = 0; self.technicum = False; self.restructured = False; self.rational = False
         self.demand_mod = 1.0; self.demand_mod_months = 0; self.cap_mod = 1.0; self.cap_mod_months = 0
+        self.cofin_months = 0; self.cofin_got = 0.0; self.emp_months = 0
+        self.digital = False; self.export_cert = False; self.equip_months = 0
+        self.tech_nov = 0; self.tech_trained = 0; self.china = False; self.mat_mult = 1.0
     def capacity(self): return max(1, int(self.assets / CAP_NORM))
     def productivity_eff(self):
         s = self.skill
@@ -623,7 +737,7 @@ class Company:
         if volume <= 0: return 0.0
         need = self.staff_need(volume)
         labor = sum(need[p]*LABOR_WAGE[p] for p in PROFS)*(1+self.premium/100)
-        mat = MATERIAL_UNIT*max(0.85, 1-self.cum_rnd*1e-6)
+        mat = MATERIAL_UNIT*self.mat_mult*max(0.85, 1-self.cum_rnd*1e-6)
         uc = mat + labor/volume + FIXED_COST/volume
         if self.patent: uc *= (1-PATENT_COST_CUT)
         if self.rational: uc *= 0.95
@@ -639,7 +753,10 @@ class Company:
             tension=self.tension,strike=self.strike,union=self.union,union_offer=self.union_offer,
             contracts=self.contracts,reliability=self.reliability,futures=self.futures,technicum=self.technicum,
             restructured=self.restructured,rational=self.rational,demand_mod=self.demand_mod,
-            demand_mod_months=self.demand_mod_months,cap_mod=self.cap_mod,cap_mod_months=self.cap_mod_months)
+            demand_mod_months=self.demand_mod_months,cap_mod=self.cap_mod,cap_mod_months=self.cap_mod_months,
+            cofin_months=self.cofin_months,cofin_got=self.cofin_got,emp_months=self.emp_months,
+            digital=self.digital,export_cert=self.export_cert,equip_months=self.equip_months,
+            tech_nov=self.tech_nov,tech_trained=self.tech_trained,china=self.china,mat_mult=self.mat_mult)
     @classmethod
     def from_dict(cls, d):
         c = cls(d["name"], d["is_bot"], d["strategy"], d["tax"])
@@ -719,7 +836,10 @@ def expert_pick(c, d, game, market):
         if dinv: nd["investment"] = round(c.assets*DEPRECIATION,-2)
         if drnd: nd["rnd"] = d["rnd"]+drnd
         cands.append(nd)
-    return max(cands, key=score)
+    best = max(cands, key=score)
+    best["price"] = min(best["price"], game["avg_price"]*1.2)
+    best["marketing"] = max(best["marketing"], 0.05*game["avg_price"]*c.capacity()*0.8)
+    return best
 
 def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_types, pool, game):
     cap = c.capacity(); s = c.strategy
@@ -764,7 +884,7 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
                   "dumper":0,"adaptive":500,"expansionist":300,"follower":200}.get(s,300)
     if c.tax != "usn6": char_floor = round(char_floor*1.3)
     if free > 0 and last_profit > 0:
-        spend["charity"] = min(max(spend["charity"], float(char_floor)), max(300.0, last_profit*0.35))
+        spend["charity"] = min(max(spend["charity"], min(float(char_floor), last_profit*0.25)), last_profit*0.35)
     elif free > 0 and c.cash > sc*1.5:
         spend["charity"] = float(char_floor)*0.5
     else:
@@ -786,8 +906,13 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
              train=train, nov_hire=nov_hire, premium=premium,
              loyalty=300.0 if s in ("conservative","balanced") else 0.0,
              tender_apply=False, tender_price=0.0, union_choice=None,
-             futures=False, technicum=False, forum_pay=False)
+             futures=False, technicum=False, forum_pay=False, expo_apply=False, expo_fee=0.0,
+             expo_go=False, upskill_prof="painters", upskill_n=0)
     if s == "conservative" and c.cash > sc*1.2: d["deposit"] = c.cash*0.2
+    if month == EXPO_APPLY_M and c.quality >= 100 and c.cash > sc*0.8 and random.random() < 0.6:
+        d["expo_apply"] = True; d["expo_fee"] = float(random.choice([0,1000,2000,3000]))
+    if game.get("invite") == c.name and c.cash > sc*0.7 and random.random() < 0.5:
+        d["expo_go"] = True
     if difficulty == "easy":
         d["price"] *= 1+random.uniform(-0.10,0.10)
         d["production"] = int(d["production"]*random.uniform(0.85,1.15))
@@ -800,13 +925,17 @@ def bot_decision(c, avg_price, season, month, difficulty, last_factor, sc, open_
                 d["price"] *= 0.95; d["production"] = max(0, d["production"]-c.inventory//2)
         if last_factor < 1.0:
             d["production"] = int(d["production"]*0.8); d["marketing"] *= 0.7
-    floor = c.unit_cost(max(1, d["production"]))*1.05
+            d["price"] *= 0.93
+        if game.get("forecast_dir") == "negative":
+            d["price"] *= 0.97
+    ref_vol = max(1, int(max(d["production"], c.capacity()*0.6)))
+    floor = c.unit_cost(ref_vol)*1.05
     d["price"] = min(d["price"], game["avg_price"]+15)
     if d["price"] < floor: d["price"] = round(floor,2)
     if difficulty == "expert":
         market_est = int(BASE_MARKET*season*game.get("last_factor",1.0))
         d = expert_pick(c, d, game, market_est)
-        floor2 = c.unit_cost(max(1, d["production"]))*1.05
+        floor2 = c.unit_cost(ref_vol)*1.05
         if d["price"] < floor2: d["price"] = round(floor2,2)
     if c.cash < RESCUE_CASH:
         d.update(marketing=0.0, rnd=0.0, investment=0.0, charity=0.0)
@@ -870,6 +999,7 @@ def run_turn(game, decisions):
     if game.get("folk_year"): game["folk_year"] = max(0, game["folk_year"]-1)
     for c in game["companies"]:
         if c.futures > 0: c.futures -= 1
+        if c.equip_months > 0: c.equip_months -= 1
         if c.cap_mod_months > 0:
             c.cap_mod_months -= 1
             if c.cap_mod_months == 0: c.cap_mod = 1.0
@@ -878,11 +1008,22 @@ def run_turn(game, decisions):
             if c.demand_mod_months == 0: c.demand_mod = 1.0
     market = int(BASE_MARKET*season*factor)
     alive = [c for c in game["companies"] if not c.bankrupt]
+    if not game.get("china_in") and CHINA_ENTER[0] <= game["turn"] <= CHINA_ENTER[1] and random.random() < 0.3:
+        game["china_in"] = True
+        cn = Company(CHINA_NAME, is_bot=True, strategy="aggressive", start_cash=game.get("start_cash",START_CASH))
+        med = lambda vals: statistics.median(vals) if vals else 0
+        cn.cash = med([c.cash for c in alive]); cn.assets = med([c.assets for c in alive])
+        cn.quality = med([c.quality for c in alive]); cn.mpi_total = med([c.mpi_total for c in alive])
+        cn.reputation = med([c.reputation for c in alive]); cn.china = True; cn.mat_mult = CHINA_MAT
+        cn.staff = {"assemblers":8,"turners":5,"painters":2,"managers":2}; cn.workers = 17
+        game["companies"].append(cn); alive.append(cn)
     news = []
     period_label = f"{MONTH_NAMES[month-1]}, год {(game['turn']-1)//12+1}"
     HEADS_KIND = {"info":"Хроника","gold":"Рекорд месяца","ok":"Достижение","warn":"Молния"}
     def add(icon, text, kind="info", head=None):
         news.append(dict(icon=icon, text=text, kind=kind, head=head or HEADS_KIND[kind], period=period_label))
+    if game.get("china_in") and game.get("turn") == game["turn"] and not game.get("china_news"):
+        pass
     if special == "marketplace": game["marketplace"] = 2
     elif special == "bloggers": game["bloggers"] = 1
     elif special == "exportwin": game["exportwin"] = 1
@@ -897,12 +1038,59 @@ def run_turn(game, decisions):
         game["crosslicense"] = True
         add("🔬", f"Кросс-лицензирование: {patent_n} патентообладателя обменялись лицензиями — синергия −5% себестоимости каждому.", "ok", "Кросс-лицензии")
     add("📅", f"{MONTH_NAMES[month-1]}, ход {game['turn']}: {event_text} Размер рынка: {market} ед.", "info", "Событие месяца")
+    if game.get("china_in") and not game.get("china_news_done") and any(c.china for c in alive):
+        game["china_news_done"] = True
+        add("🐉", f"На рынок Вознесенского округа выходит иностранный холдинг «{CHINA_NAME}»: современные линии, господдержка сырья и агрессивные цены. Округ замер.", "warn", "Иностранный игрок")
     if month == 12:
         add("🎄", f"Предновогодний спрос: премиальные матрёшки (качество >{DEC_PREMIUM_QUALITY:.0f}) получают +20% заказов.", "info", "Сезон")
+        yr = (game["turn"]-1)//12+1
+        game.setdefault("titles_by_year", {})[yr] = compute_titles(game, yr)
+        add("🏆", f"Подведены итоги года {yr}: звания распределены (см. дашборд и финальный выпуск).", "gold", f"Итоги года {yr}")
     if month in ANNOUNCE_MONTHS:
-        game["sub_types_open"] = random.sample([1,2,3],2)
+        game["sub_types_open"] = random.sample([1,2,3,4,5,6],2)
         add("🏛", f"Минпромторг в следующем месяце объявит конкурс субсидий: {SUB_TYPE_NAMES[game['sub_types_open'][0]]} и {SUB_TYPE_NAMES[game['sub_types_open'][1]]}.", "gold", "Минпромторг")
     open_types = game.get("sub_types_open") or [1,2]
+    if month == EXPO_APPLY_M:
+        game["expo_price"] = game["avg_price"]
+        add("✈️", f"Экспортный центр России открыл приём заявок на поездку на Spielwarenmesse (Нюрнберг): взнос за стенд до {EXPO_FEE_MAX:,.0f} ₽, допуск качество ≥100. Победитель объявится в марте, поездка в апреле.", "gold", "Экспортный центр")
+    if month == EXPO_WIN_M:
+        apps = [(c, decisions[c.name]) for c in alive if decisions[c.name].get("expo_apply") and c.quality >= 100]
+        if apps:
+            lead_mpi = max(c.mpi_total for c in alive) or 1
+            scored = []
+            for c, dd in apps:
+                fee = min(EXPO_FEE_MAX, dd.get("expo_fee",0.0))
+                sc_ = (0.35*min(1.0,c.quality/120) + 0.25*min(1.0,c.reliability/5) + 0.20*min(1.0,c.reputation/10)
+                       + 0.20*(c.mpi_total/lead_mpi) + (0.05 if c.brand else 0) + (0.05 if c.patent else 0)
+                       + 0.10*(fee/EXPO_FEE_MAX))
+                scored.append((sc_, c))
+            scored.sort(key=lambda x: -x[0])
+            game["expo_winner"] = scored[0][1].name
+            add("✈️", f"Экспортный центр выбрал представителя на Spielwarenmesse: «{game['expo_winner']}» (балл {scored[0][0]:.2f}). Поездка в апреле.", "ok", "Экспортный центр")
+        else:
+            game["expo_winner"] = None
+            add("✈️", "Экспортный центр не получил ни одной квалифицированной заявки (качество ≥100): поездка отменена.", "warn", "Экспортный центр")
+    if month == EXPO_TRIP_M and game.get("expo_winner"):
+        w = next((c for c in alive if c.name == game["expo_winner"]), None)
+        if w:
+            wq = w.quality
+            w_contract = 0.55 if wq >= 110 else 0.40
+            r = random.random()
+            if r < w_contract:
+                vol = 100; pr = game.get("expo_price", game["avg_price"]); total = pr*vol*3
+                w.contracts.append(dict(months=3, monthly_vol=vol, price=pr, customer="Spielwarenmesse (экспорт)", total=total))
+                w.cash += total*TENDER_ADVANCE
+                add("✈️", f"«{w.name}» с выставки Spielwarenmesse привезла экспортный контракт: {vol} ед./мес на 3 мес по {pr:.1f} ₽, аванс получен.", "gold", "Экспортный центр")
+            elif r < w_contract+0.25:
+                w.reputation += 5
+                add("✈️", f"«{w.name}» на Spielwarenmesse завоевала внимание прессы: +5 репутации.", "ok", "Экспортный центр")
+            elif r < w_contract+0.45:
+                w.quality = min(150, w.quality+5)
+                add("✈️", f"«{w.name}» привезла с Spielwarenmesse новые разработки росписи: +5 качества.", "ok", "Экспортный центр")
+            else:
+                w.demand_mod = 1.03; w.demand_mod_months = 1
+                add("✈️", f"Поездка «{w.name}» на Spielwarenmesse без контрактов, но с полезными контактами: +3% спроса на месяц.", "info", "Экспортный центр")
+        game["expo_winner"] = None
     coal = game.get("coalition")
     if coal and coal["months"] > 0:
         coal["months"] -= 1
@@ -916,8 +1104,14 @@ def run_turn(game, decisions):
             mpi_lead_c = max(alive, key=lambda x: x.mpi_total)
             second = sorted([x.mpi_total for x in alive], reverse=True)[1] if len(alive) > 1 else 0
             share_val = share_lead_c.history[-1]["market_share"] if share_lead_c.history else 0
+            q_lead = max(alive, key=lambda x: x.quality)
+            quals = sorted([x.quality for x in alive]); med_q = quals[len(quals)//2] if quals else 100.0
+            hst = share_lead_c.history
+            grow = len(hst) >= 4 and hst[-1]["market_share"] > hst[-2]["market_share"] > hst[-3]["market_share"] > hst[-4]["market_share"]
             if share_val > COALITION_SHARE*100: lead = share_lead_c
             elif second and mpi_lead_c.mpi_total > COALITION_GAP*second: lead = mpi_lead_c
+            elif q_lead.quality - med_q > 15: lead = q_lead
+            elif grow: lead = share_lead_c
             else: lead = None
             if lead is not None:
                 if random.random() < COALITION_CHANCE:
@@ -936,7 +1130,7 @@ def run_turn(game, decisions):
                     add("🧑🤝‍🧑", f"«{c.name}» подписала коллективный договор: зарплаты +{UNION_WAGE_UP*100:.0f}%, риск забастовок ниже.", "info", "Профсоюз")
                 else:
                     c.union_offer = False; c.tension = min(100, c.tension+5)
-                    add("🧑‍‍🧑", f"«{c.name}» отклонила коллективный договор профсоюза.", "warn", "Профсоюз")
+                    add("🧑‍🤝‍", f"«{c.name}» отклонила коллективный договор профсоюза.", "warn", "Профсоюз")
     next_month = (month%12)+1
     if game["turn"] >= 3 and not game.get("tender") and next_month in TENDER_MONTHS:
         cname, vshare, pcap, qmin = random.choice(TENDER_CUSTOMERS)
@@ -958,11 +1152,16 @@ def run_turn(game, decisions):
             apps[0][0].sub_msg = "Отказ: подана только одна заявка (антимонопольное правило)."
             add("🏛", "Конкурс Минпромторга не состоялся: одна заявка (антимонопольное правило).", "warn", "Минпромторг")
         else:
-            w = n//2; apps.sort(key=lambda x: -x[2])
-            winners = [a[0].name for a in apps[:w]]
+            w = n//2; apps.sort(key=lambda x: -x[2]); winners = [a[0].name for a in apps[:w]]
             for a in apps:
                 if a[0].name in winners:
-                    a[0].sub_won, a[0].sub_type = True, a[1]["sub_type"]; a[0].sub_msg = f"СУБСИДИЯ ВЫДАНА (балл {a[2]:.1f})."
+                    c_ = a[0]; c_.sub_won, c_.sub_type = True, a[1]["sub_type"]; c_.sub_msg = f"СУБСИДИЯ ВЫДАНА (балл {a[2]:.1f})."
+                    if c_.sub_type == 2:
+                        c_.cofin_months = COFIN_WINDOW; c_.cofin_got = 0.0
+                        c_.quality = min(150, c_.quality+2); c_.equip_months = 2
+                    elif c_.sub_type == 4: c_.emp_months = EMP_MONTHS
+                    elif c_.sub_type == 5: c_.digital = True
+                    elif c_.sub_type == 6: c_.export_cert = True; c_.reputation += 2
                 else:
                     a[0].sub_msg = f"Отказ: балл {a[2]:.1f} не прошёл."
             add("🏛", f"Итоги конкурса Минпромторга: заявок {n}, выдано {w}. Победители: {', '.join(winners)}.", "ok", "Минпромторг: итоги")
@@ -990,8 +1189,8 @@ def run_turn(game, decisions):
             game["merge_boost"][absorber.name] = 1+tgt_share/100
             if game.get("record_company") == target.name: game["record_company"] = absorber.name
             add("🏛", f"Слияние на рынке матрёшек: «{absorber.name}» поглотила «{target.name}». Мощности, касса, штат и контракты объединены; интеграция стоила {integ:,.0f} ₽.", "warn", "Слияние и поглощение")
-            add("🏛", f"Площадка «{target.name}» проходит ребрендинг: новая вывеска с логотипом «{absorber.name}».", "info", "Ребрендинг площадки")
-            game["companies"].remove(target); alive.remove(target)
+            game["companies"].remove(target)
+            if target in alive: alive.remove(target)
     if alive and random.random() < 0.35:
         pc = random.choice(alive); pe = random.choice(PERSONAL_EVENTS)
         if pe == "recall":
@@ -999,8 +1198,7 @@ def run_turn(game, decisions):
             pc.cash -= fine; pc.quality = max(20, pc.quality-3); pc.reputation = max(0, pc.reputation-0.5)
             add("⚠️", f"Отзыв партии у «{pc.name}»: брак росписи, штраф {fine:,.0f} ₽.", "warn", "Отзыв партии")
         elif pe == "viral":
-            pc.pr_next = True
-            add("📯", f"Вирусный ролик с матрёшкой «{pc.name}»: +20% спроса на 2 месяца.", "ok", "Вирусный ролик")
+            pc.pr_next = True; add("📯", f"Вирусный ролик с матрёшкой «{pc.name}»: +20% спроса на 2 месяца.", "ok", "Вирусный ролик")
         elif pe == "master_leave":
             if pc.staff["painters"] > 0 and pc.skill["painters"] >= 3:
                 pc.skill["painters"] = max(1.0, pc.skill["painters"]-0.5)
@@ -1079,7 +1277,8 @@ def run_turn(game, decisions):
     for c in alive:
         dd = decisions[c.name]
         rep_mult = min(1.0+REP_MKT_CAP, 1.0+REP_MKT*c.reputation)
-        mkt_eff = dd["marketing"]*rep_mult*(1.5 if (c.sub_won and c.sub_type == 2) else 1.0)*mkt_boost
+        dig_mult = 1.10 if c.digital else 1.0
+        mkt_eff = dd["marketing"]*rep_mult*dig_mult*(1.5 if False else 1.0)*mkt_boost
         a = c.quality*0.02 + mkt_eff/3000.0 - dd["price"]/30.0 + REP_ATTRACT*c.reputation
         brand_now = c.quality >= BRAND_QUALITY and c.reputation >= BRAND_REPUTATION
         if brand_now: a *= BRAND_BONUS
@@ -1096,7 +1295,7 @@ def run_turn(game, decisions):
         if c.union_offer and dd.get("union_choice"):
             if dd["union_choice"] == "sign":
                 c.union = True; c.tension = max(0, c.tension-25)
-                add("🧑‍🤝‍🧑", f"«{c.name}» подписала коллективный договор: зарплаты +{UNION_WAGE_UP*100:.0f}%.", "info", "Профсоюз")
+                add("🧑‍🤝‍", f"«{c.name}» подписала коллективный договор: зарплаты +{UNION_WAGE_UP*100:.0f}%.", "info", "Профсоюз")
             else:
                 c.tension = min(100, c.tension+5); add("🧑‍‍🧑", f"«{c.name}» отклонила коллективный договор.", "warn", "Профсоюз")
             c.union_offer = False
@@ -1105,13 +1304,21 @@ def run_turn(game, decisions):
         if month == 12 and c.quality > DEC_PREMIUM_QUALITY: orders *= DEC_PREMIUM_MULT
         if c.pr_next: orders *= 1.02; c.pr_next = False
         orders *= game.get("merge_boost", {}).get(c.name, 1.0)
-        if game.get("marketplace") and c.quality >= 100: orders *= 1.10
+        if game.get("marketplace") and c.quality >= 100: orders *= (1.15 if c.digital else 1.10)
         if game.get("exportwin") and c.quality >= 100: orders *= 1.30
+        if c.export_cert and c.quality >= 100: orders *= (1.10 if game.get("exportwin") else 1.05)
         if game.get("folk_year"): orders *= 1.15
         if game.get("scandal"): orders *= (0.97 if c.quality >= 110 else 0.90)
         if game.get("lessons") and c.quality < 100: orders *= 1.15
         if c.demand_mod_months > 0: orders *= c.demand_mod
         prod = max(0, min(int(dd["production"]), int(c.capacity()*c.cap_mod)))
+        if c.equip_months > 0: prod = int(prod*1.05)
+        up_n = int(dd.get("upskill_n",0)); up_prof = dd.get("upskill_prof","painters")
+        if up_n > 0 and c.staff[up_prof] >= up_n:
+            up_cost = up_n*UPSKILL_COST
+            c.cash -= up_cost; c.skill[up_prof] = min(5.0, c.skill[up_prof]+UPSKILL_GAIN*up_n)
+            prod = int(prod*(1-0.06*up_n))
+            add("🎓", f"«{c.name}» отправила {up_n} сотр. на повышение квалификации ({PROF_RU[up_prof]}): навык +{UPSKILL_GAIN*up_n:.1f}, выпуск просел.", "info", "Повышение квалификации")
         if c.strike > 0:
             prod = int(prod*STRIKE_PROD_MULT); c.strike -= 1
             if c.strike == 0:
@@ -1148,7 +1355,13 @@ def run_turn(game, decisions):
                 pool[p] -= got; c.staff[p] += got; hire_fee += got*0.5*LABOR_WAGE[p]*prem_mult
                 hired_txt.append(f"{PROF_RU[p]} +{got}")
         nov = int(dd.get("nov_hire",0))
-        if nov > 0: c.novices += nov; hire_fee += nov*0.5*NOVICE_WAGE; hired_txt.append(f"новички +{nov}")
+        if nov > 0:
+            c.novices += nov; hire_fee += nov*0.5*NOVICE_WAGE; hired_txt.append(f"новички +{nov}")
+            if random.random() < 0.3:
+                c.tension = min(100, c.tension+2)
+                add("🧑‍", f"Среди новичков «{c.name}» оказался амбициозный взрослый с ожиданиями: +2 напряжённости.", "warn", "Кот в мешке")
+        if c.technicum and c.cash >= TECHNICUM_FEE:
+            c.cash -= TECHNICUM_FEE; c.novices += 1; c.tech_nov += 1
         sever = 0.0
         for p in PROFS:
             f_ = min(int(dd.get("fire",{}).get(p,0)), c.staff[p])
@@ -1156,46 +1369,68 @@ def run_turn(game, decisions):
                 c.staff[p] -= f_; sever += f_*2*LABOR_WAGE[p]*prem_mult; pool[p] += f_
                 c.reputation = max(0, c.reputation-0.2*f_)
         for prof in dd.get("train",[]):
-            if c.novices > 0: c.novices -= 1; c.training.append([TRAIN_MONTHS, prof])
+            if c.novices > 0:
+                c.novices -= 1
+                tech_src = c.tech_nov > 0
+                if tech_src: c.tech_nov -= 1
+                c.training.append([2 if tech_src else TRAIN_MONTHS, prof, tech_src])
         train_cost = len(c.training)*TRAIN_COST
         still = []
         for t in c.training:
             t[0] -= 1
             if t[0] <= 0:
-                prof = t[1]; mentor = any(c.skill[q] >= 3.5 for q in ["turners","painters","assemblers"])
+                prof = t[1]; tech_src = t[2] if len(t) > 2 else False
+                mentor = any(c.skill[q] >= 3.5 for q in ["turners","painters","assemblers"])
                 c.staff[prof] += 1; c.skill[prof] = min(5.0, c.skill[prof]+0.1+(MENTOR_BONUS*0.1 if mentor else 0))
+                if tech_src:
+                    c.tech_trained += 1; c.tension = max(0, c.tension-1)
                 hired_txt.append(f"выпуск → {PROF_RU[prof]}")
             else: still.append(t)
         c.training = still
         poached = []
         risk = max(0.0, 0.05-0.002*c.premium-c.loyalty/50000-c.reputation*0.002)
+        if c.tech_trained > 0: risk *= 0.7
         for p in ["painters","turners"]:
             if c.staff[p] > 0 and c.skill[p] >= 3 and random.random() < risk:
                 c.staff[p] -= 1; pool[p] += 1; poached.append(PROF_RU[p])
         if poached: add("👥", f"«{c.name}»: конкуренты переманили {', '.join(poached)}.", "warn", "Биржа труда")
         if hired_txt: add("👥", f"«{c.name}» кадровые движения: {', '.join(hired_txt)}.", "info", "Биржа труда")
+        if game.get("invite") == c.name and dd.get("expo_go") and c.cash >= INVITE_COST:
+            c.cash -= INVITE_COST
+            r = random.random()
+            if r < 0.3: c.reputation += 1; add("🎪", f"«{c.name}» съездила на отраслевую выставку: +1 репутация.", "ok", "Выставка")
+            elif r < 0.6: c.demand_mod = 1.10; c.demand_mod_months = 2; add("🎪", f"«{c.name}» на выставке зажгла интерес: +10% спроса на 2 мес.", "ok", "Выставка")
+            elif r < 0.85:
+                qty = int(c.capacity()*0.25); rev = qty*(c.history[-1]["price"] if c.history else 35)
+                c.cash += rev; add("🎪", f"На выставке «{c.name}» получила корпоративный заказ: {qty} ед. на {rev:,.0f} ₽.", "ok", "Выставка")
+            else: add("🎪", f"«{c.name}» на выставке без сделок, но с контактами: +0.05 к баллу следующего тендера.", "info", "Выставка")
         if dd.get("futures") and c.futures == 0 and c.cash >= FUTURES_FEE:
             c.cash -= FUTURES_FEE; c.futures = FUTURES_MONTHS
             add("🌲", f"«{c.name}» купила фьючерс на сырьё на {FUTURES_MONTHS} мес: скачки сырья не страшны.", "info", "Фьючерс на сырьё")
         c.technicum = bool(dd.get("technicum"))
-        if c.technicum and c.cash >= TECHNICUM_FEE:
-            c.cash -= TECHNICUM_FEE; c.novices += 1
         if game.get("forum_open") and dd.get("forum_pay") and c.cash >= FORUM_FEE:
             c.cash -= FORUM_FEE; c.reputation += 1
             add("🎪", f"«{c.name}» участвовала в форуме «Промысел и бизнес»: +1 репутация.", "ok", "Форум")
+        if c.cofin_months > 0:
+            refund = min(dd["investment"]*COFIN_PCT, max(0.0, COFIN_CAP-c.cofin_got))
+            if refund > 0:
+                c.cash += refund; c.cofin_got += refund
+                add("🏗", f"Софинансирование оборудования: «{c.name}» получила возврат {refund:,.0f} ₽ (осталось окон: {c.cofin_months-1}).", "ok", "Минпромторг")
+            c.cofin_months -= 1
         need = c.staff_need(prod)
         mgr_short = max(0, need["managers"]-c.staff["managers"]); coord = mgr_short*500
         c.vacancies = {p: max(0, need[p]-c.staff[p]) for p in PROFS}
         tot_need = sum(need.values()) or 1
         c.vac_pct = sum(c.vacancies.values())/tot_need*100
         ot = c.vac_pct
-        dt = ot*0.15
+        dt = ot*0.12
         dt += (-1 if c.premium >= 10 else (3 if c.premium < 0 else 0))
-        dt += (2 if c.reputation < 2 else (-2 if c.reputation >= 5 else 0))
+        dt += (1 if c.reputation < 1 else (-2 if c.reputation >= 5 else 0))
         if dd.get("fire") and sum(dd["fire"].values()) > 0: dt += 5
-        dt -= c.loyalty/1000.0
+        dt -= c.loyalty/600.0
         dt -= (3 if c.union else 0)
-        dt -= 3*max(0.0, 1-ot/20.0)
+        dt -= 3*max(0.0, 1-ot/35.0)
+        if c.technicum: dt -= 1
         c.tension = max(0, min(100, c.tension+dt))
         if c.tension > TENSION_STRIKE and c.strike == 0 and random.random() < (c.tension-TENSION_STRIKE)/30*0.35:
             c.strike = 1
@@ -1204,16 +1439,18 @@ def run_turn(game, decisions):
         qcap = 80+15*c.skill["painters"]
         c.workers = sum(c.staff.values())+c.novices
         labor = c.labor_cost()+coord+train_cost+hire_fee+sever
-        mat = prod*MATERIAL_UNIT*max(0.85, 1-c.cum_rnd*1e-6)
+        mat = prod*MATERIAL_UNIT*c.mat_mult*max(0.85, 1-c.cum_rnd*1e-6)
         cf = cost_factor
         if special == "quarantine" and c.futures > 0: cf = 1.0
+        labor_only = c.labor_cost()*cf
+        mat_cost = mat*cf
         prod_cost = (mat+c.labor_cost())*cf + coord+train_cost+hire_fee+sever
         if c.patent: prod_cost *= (1-PATENT_COST_CUT)
         if c.patent and game.get("crosslicense"): prod_cost *= 0.95
         if c.rational: prod_cost *= 0.95
         storage = c.inventory*STORAGE_COST
         rep_mult = min(1.0+REP_MKT_CAP, 1.0+REP_MKT*c.reputation)
-        mkt_eff = dd["marketing"]*rep_mult*(1.5 if (c.sub_won and c.sub_type == 2) else 1.0)*mkt_boost
+        mkt_eff = dd["marketing"]*rep_mult*(1.10 if c.digital else 1.0)*mkt_boost
         charity = dd.get("charity",0.0)
         rec_name, rec_mult = CHARITY_RECS.get(dd.get("charity_rec",1), CHARITY_RECS[1])
         c.reputation = max(0.0, c.reputation + charity/1000.0*rec_mult - REP_EROSION)
@@ -1231,11 +1468,16 @@ def run_turn(game, decisions):
         else: tax = max((revenue-costs)*0.15, revenue*0.01)
         profit = operating-tax
         grant = GRANT_FIXED if (c.sub_won and c.sub_type == 1) else 0.0
-        refund = dd["investment"]*0.3 if (c.sub_won and c.sub_type == 2) else 0.0
+        if c.emp_months > 0:
+            util_now = prod/c.capacity() if c.capacity() else 0
+            if util_now >= EMP_UTIL:
+                comp = min(EMP_CAP, labor*EMP_PCT); c.cash += comp
+                add("🧑‍🏭", f"Субсидия занятости: «{c.name}» получила компенсацию ФОТ {comp:,.0f} ₽ (осталось мес: {c.emp_months-1}).", "ok", "Минпромторг")
+            c.emp_months -= 1
         base_loan = game.get("loan_rate", LOAN_RATE)
         loan_rate = base_loan*0.5 if (c.sub_won and c.sub_type == 3) else base_loan
         cash_start = c.cash
-        c.cash += revenue-vat-costs-charity-tax-dd["investment"]+refund+grant
+        c.cash += revenue-vat-costs-charity-tax-dd["investment"]+grant
         if dd.get("subsidy_apply"): c.cash -= dd.get("sub_pay",0.0)
         if dd["loan"] > 0 and sum(l[0] for l in c.loans)+dd["loan"] <= LOAN_LIMIT:
             c.cash += dd["loan"]; c.loans.append([dd["loan"], loan_rate, dd["loan_term"], dd["loan_term"]])
@@ -1281,6 +1523,9 @@ def run_turn(game, decisions):
                 add("💀", f"«{c.name}»: БАНКРОТСТВО, выбывает с рынка.", "warn")
         dep_total = sum(dp[0] for dp in c.deposits)
         tier = charity_tier(charity)
+        rev_m = revenue
+        if rev_m > game.get("rec_rev",0): game["rec_rev"], game["rec_rev_who"] = rev_m, c.name
+        if profit < game.get("rec_loss",0): game["rec_loss"], game["rec_loss_who"] = profit, c.name
         c.history.append(dict(turn=game["turn"], month=month, month_name=MONTH_NAMES[month-1],
             price=dd["price"], prod=prod, sales=sales, orders=orders, lost=lost, inventory=c.inventory,
             revenue=revenue, vat=vat, prod_cost=prod_cost, storage=storage, marketing=mkt_eff,
@@ -1293,7 +1538,9 @@ def run_turn(game, decisions):
             productivity=c.productivity_eff(), brand=c.brand, staff=dict(c.staff), skill=dict(c.skill),
             novices=c.novices, training=len(c.training), vac_pct=c.vac_pct, premium=c.premium,
             tension=c.tension, strike=c.strike, union=c.union, reliability=c.reliability,
-            contracts=len(c.contracts), patent=patent, bankrupt=bankrupt_now))
+            contracts=len(c.contracts), patent=patent, bankrupt=bankrupt_now,
+            mat_cost=mat_cost, labor_only=labor_only, coord=coord, train_cost=train_cost,
+            hire_fee=hire_fee, sever=sever))
         check_achievements(game, c, c.history[-1])
     tnd = game.get("tender")
     if tnd and tnd.get("open") and month in TENDER_MONTHS:
@@ -1378,6 +1625,7 @@ def run_turn(game, decisions):
     true_dir = "positive" if score > 0.03 else ("negative" if score < -0.03 else "stable")
     accurate = 1.0 if game.get("census") else 0.9
     game["forecast_dir"] = true_dir if random.random() < accurate else random.choice([d for d in ("positive","negative","stable") if d != true_dir])
+    game["invite"] = random.choice(alive).name if alive else None
 
 def execute_turn(game, cur):
     dec = dict(cur); sc = game.get("start_cash", START_CASH)
@@ -1432,20 +1680,83 @@ def build_advice(game, c):
 def enc_sections():
     return [
         ("Быстрый старт и порядок хода","Ход = 1 месяц. Во вкладке «Решения» каждая человеческая компания сдаёт решения по очереди (хот-сит до 10 человек). Боты сдают сами. Когда все готовы — ход рассчитывается. Кнопка «Следующий ход» — в сайдбаре. Песочница даёт подсказки и иммунитет от банкротства первые 6 месяцев."),
-        ("Кадры, специальности и обучение","Штат: сборщики, токари, мастера росписи, управленцы (1 на 8). Производительность растёт от навыка токарей/сборщиков; потолок качества — от мастеров росписи; дефицит управленцев даёт штраф координации. Новички дешевле, но 0.55 производительности; обучение 3 мес по 1200 ₽/мес; наставник (навык ≥3.5) даёт +0.5. Партнёрство с техникумом даёт +1 новичка в месяц за 500 ₽."),
-        ("Напряжённость, забастовки, профсоюз","Напряжённость копится от переработок (вакансии ×0.15), отрицательной премии, слабой репутации и увольнений; сбрасывается бонусом лояльности (/1000), отдыхом (до −3 при вакансиях <20%), премией ≥10 (−1), профсоюзом (−3). При >70 растёт шанс забастовки: производство −60% на месяц, после неё напряжённость −30 и качество −3. При штате >20 профсоюз может предложить коллективный договор: зарплаты +10%, риск забастовок ниже."),
-        ("Ценовая коалиция и слияния","Если доля лидера >35% или MPI >1.25× второго, с шансом 20%/мес 2–4 бота объявляют ценовую коалицию против него на 1–2 мес. С хода 5 при ≥5 ботах раз в игру возможно слияние: сильнейший бот поглощает слабейшего (ресурсы суммируются, репутация/качество/надёжность max, патент/бренд/профсоюз «ИЛИ»), платит 5% кассы за интеграцию и один ход торгует за двоих."),
+        ("Кадры, специальности, обучение и техникум","Штат: сборщики, токари, мастера росписи, управленцы (1 на 8). Новички дешевле, но 0.55 производительности; обучение 3 мес по 1200 ₽/мес. Партнёрство с техникумом (500 ₽/мес): +1 новичок/мес, его обучение 2 мес вместо 3, выпускник лоялен (−1 напряжённость при выпуске, риск переманивания −30%). Уличные новички дёшевы, но с шансом 30% это «амбициозный взрослый» (+2 напряжённости). Повышение квалификации штатных: 1500 ₽, навык +0.2, выпуск проседает на 6% за каждого."),
+        ("Напряжённость, забастовки, профсоюз","Напряжённость копится от переработок (вакансии ×0.12), отрицательной премии, слабой репутации и увольнений; сбрасывается бонусом лояльности (/600), отдыхом (до −3 при вакансиях <35%), премией ≥10 (−1), профсоюзом (−3), техникумом (−1). При >70 растёт шанс забастовки: производство −60% на месяц, после неё напряжённость −30 и качество −3."),
+        ("Субсидии Минпромторга (6 направлений)","В окне открываются 2 случайных: 1 грант 10 000 ₽; 2 софинансирование оборудования (70% инвестиций месяца победы и следующего, потолок 15 000, +2 качества и +5% производительности на 2 мес); 3 льготный кредит (½ ставки); 4 субсидия занятости (50% ФОТ 6 мес, потолок 1500/мес, загрузка ≥60%); 5 цифровизация (+10% маркетинга постоянно, +15% спроса в событии маркетплейса); 6 экспортная сертификация (+5% спроса при качестве ≥100 постоянно, +2 репутации, ×2 в экспортное окно)."),
+        ("Экспортный центр и Spielwarenmesse","Февраль — заявки (взнос до 5000 ₽, качество ≥100); март — победитель по баллам (качество 0.35, надёжность 0.25, репутация 0.20, MPI 0.20, бренд/патент по 0.05, взнос до +0.10); апрель — поездка: контракт 100 ед./мес×3 (55% при качестве ≥110) / репутация +5 / качество +5 / «познавательно» (+3% спроса)."),
         ("Госзакупки (тендеры)","В марте/июне/сентябре/декабре открывается тендер (анонс за месяц). Заявка = цена (не выше потолка) + объём на 3 мес. Победа по баллам 0.6×цена + 0.2×качество + 0.2×надёжность. Аванс 30%; недогруз → штраф 10% и −надёжность/репутация; исполнение → +надёжность."),
-        ("Случайные события: общие и персональные","Общие бьют по рынку: бум/кризис/сырьё/ЦБ/эко/туризм/ГОСТ/грипп/краски, маркетплейс (+10% спроса качеству ≥100 на 2 мес), десант блогеров (маркетинг +20%), засуха, экспортное окно, форум (выбор: плата за +1 репутацию), Год народной культуры (+15% полгода), скандал (−10%, качественным меньше), короед (+10% сырья, фьючерс защищает), перепись (прогноз 100% на 3 мес), энергия (+6%), уроки промысла (дешёвый сегмент +15%). Персональные: отзыв, вирус, уход мастера, корпзаказ, авария склада, Роскачество, поломка, приз, брак поставщика, обзор блогера, рацпредложение, предзаказ музея, срыв перевозки, налоговая ошибка, подарок области, пожарный инспектор, свадьба сотрудника, профсоюзная премия."),
-        ("Финансовые инструменты","Кредит/депозит со ставками ЦБ; фьючерс на сырьё (2000 ₽, 3 мес защиты от скачков сырья); страхование отсутствует как отдельный инструмент, но реструктуризация даёт один второй шанс вместо банкротства (списание 50% долгов за −2 репутацию и −2 надёжность). Кросс-лицензирование: при ≥2 патентообладателях каждый получает −5% себестоимости."),
-        ("Решения: цена и производство","Цена снижает привлекательность (−цена/30), но растит маржу. Производство ограничено мощностью; непроданное уходит на склад (1.5 ₽/ед./мес). Амортизация 1.7%/мес; инвестиции расширяют мощность."),
-        ("Маркетинг, репутация и благотворительность","Маркетинг усиливается репутацией ×(1+0.05×реп), потолок ×1.5, и медиаволной блогеров ×1.2. Репутация +0.04 привлекательности за пункт, эрозия −0.01/мес. Благотворительность +1 реп за 1000 ₽ × множитель получателя; тиры и значок ♥; PR-заметка 40% при ≥1000. Соцкапитал округа копит благотворительность и удерживает кадры."),
-        ("НИОКР, патент и роялти","Патент: шанс 50% при НИОКР ≥30 000, гарантия при ≥60 000; даёт +15 качества, −10% себестоимости, +30 MPI разово. Малый НИОКР лишь замедляет падение качества (точка безубыточности ≈900 ₽/ход); качество сильнее качают навык мастеров росписи и патент. Роялти (тумблер): конкуренты платят патентообладателю 0.5% выручки."),
-        ("Достижения и звания","21 ачивка-бейдж (Первая прибыль, Первый патент, Первый госконтракт, Пережил забастовку, Меценат, Носитель бренда, Рекордсмен отрасли, Крупный работодатель, Мастер качества, Миллионер, Чистый квартал, Половина рынка, Всё продано, Экспортёр, Надёжный поставщик, Полный штат, Спокойный коллектив, Народная любовь, Качество 150, Быстрый старт, Марафонец). Звания года: Работодатель, Налогоплательщик, Меценат, Рекордсмен, Носители бренда ®."),
-        ("MPI, сложность ботов","MPI = 100×(0.35×прибыль + 0.25×доля + 0.25×средства + 0.15×качество), компоненты делятся на лидера месяца; итог = сумма. Сложности: лёгкие/средние/сложные/экспертные. Экспертные боты перебирают 7 планов и выбирают лучший по прогнозному MPI с поправкой на характер."),
-        ("Словарь","Загрузка, соцкапитал, pity-timer, роялти, хот-сит, конверт развития ботов, вакансия, наставник, премия, напряжённость, коалиция, тендер, надёжность, фьючерс, реструктуризация, кросс-лицензия, медиаволна."),
+        ("Иностранный игрок «Хэнъянь»","На 10–14 ходу на рынок входит китайский холдинг: касса/активы/качество ≈ медиана поля, стратегия aggressive, −10% к материалам (господдержка сырья). Участвует в тендерах и коалициях наравне со всеми."),
+        ("Ценовая коалиция и слияния","Если доля лидера >35% или MPI >1.25× второго, с шансом 20%/мес 2–4 бота объявляют ценовую коалицию против него на 1–2 мес. С хода 5 при ≥5 ботах раз в игру возможно слияние: сильнейший бот поглощает слабейшего."),
+        ("MPI, сложность ботов","MPI = 100×(0.35×прибыль + 0.25×доля спроса + 0.25×средства + 0.15×качество), компоненты делятся на лидера месяца; итог = сумма. Сложности: лёгкие/средние/сложные/экспертные (expert перебирает 7 планов по прогнозному MPI)."),
+        ("Словарь","Загрузка, соцкапитал, pity-timer, роялти, хот-сит, конверт развития ботов, вакансия, наставник, премия, напряжённость, коалиция, тендер, надёжность, фьючерс, реструктуризация, кросс-лицензия, медиаволна, экспорт-готов."),
     ]
 
+QUOTES = [
+ ("Питер Друкер","Всякий раз, когда вы видите успешный бизнес, кто-то однажды принял смелое решение.","За каждым успешным проектом стоит готовность идти на оправданный риск."),
+ ("Уоррен Баффет","Требуется двадцать лет, чтобы создать репутацию, и пять минут, чтобы её разрушить.","Остерегайтесь неэтичных шагов — восстановить доверие после скандала почти невозможно."),
+ ("Стив Джобс","Нет смысла нанимать умных людей, а затем указывать им, что делать. Мы нанимаем умных людей, чтобы они рассказывали нам, что делать.","Стройте команду из специалистов, способных генерировать идеи, а не просто выполнять приказы."),
+ ("Питер Друкер","Эффективность — это делать вещи правильно; результативность — делать правильные вещи.","Не только оптимизируйте процессы, но и фокусируйтесь на стратегически важных задачах."),
+ ("Генри Форд","Главная польза капитала не в том, чтобы сделать больше денег, но в том, чтобы делать деньги ради улучшения жизни.","Бизнес создаёт ценность для клиентов, а не только извлекает прибыль."),
+ ("Адам Смит","Остерегайтесь и мелких напрасных расходов, ибо маленькая течь может потопить большой корабль.","Контроль операционных издержек решает судьбу компании."),
+ ("Наваль Равикант","Богатство — это те активы, которые работают на вас, пока вы спите.","Активы должны генерировать доход, а не просто лежать на счёте."),
+ ("Сет Годин","На оживлённом рынке не выделяться — всё равно что быть невидимым.","Уникальность и понимание клиента — ваше главное преимущество."),
+ ("Том Фишберн","Лучший маркетинг не ощущается как маркетинг.","Честный ненавязчивый подход строит долгосрочную лояльность."),
+ ("Мадам C.Дж. Уокер","Не сидите и не ждите, что возможности сами появятся. Вставайте и создавайте их.","Действуйте, а не ждите."),
+ ("Николас Батлер","Бизнес, нацеленный на удовлетворение чьих-то потребностей, обычно оказывается успешным; бизнес, нацеленный на получение прибыли, редко бывает успешным.","Фокус на клиенте — главный двигатель бизнеса."),
+ ("Дрю Хьюстон","Не беспокойтесь о неудаче. Вы должны лишь один раз оказаться правым.","Ошибки — часть процесса обучения и поиска верного пути."),
+ ("Ричард Брэнсон","Обучите людей достаточно хорошо, чтобы они могли уйти, относитесь к ним достаточно вежливо, чтобы они этого не хотели.","Инвестиции в развитие сотрудников — основа устойчивого бизнеса."),
+ ("Гай Кавасаки","В бизнесе редко оперируют категориями «правильное» и «неправильное», здесь в ходу другой критерий — работает или нет.","Тестируйте гипотезы, собирайте обратную связь и корректируйте курс."),
+]
+GAME_TIPS = [
+ "Упал спрос (событие месяца) — снижайте цену на 5–10% и подрезайте выпуск, чтобы не копить склад.",
+ "Склад больше 20% месячного выпуска — замороженные деньги: цена −5…10% или маркетинг вверх.",
+ "Напряжённость выше 60 — риск забастовки: премия ≥10, бонус лояльности, найм до 0% вакансий.",
+ "Качество ползёт вниз при малом НИОКР: точка безубыточности ≈900 ₽/ход; сильнее качают навык росписи и патент.",
+ "MPI на 60% состоит из прибыли и кассы: оборот ради оборота проигрывает марже и ликвидности.",
+ "Тендер даёт аванс 30% и качает надёжность; надёжность позволяет выигрывать следующие тендеры дороже.",
+ "Техникум (500 ₽/мес) даёт лояльных новичков и обучение за 2 месяца вместо 3 — выгоднее уличного найма в долгую.",
+ "Софинансирование оборудования окупается, только если в месяц победы и следующий вы реально инвестируете.",
+ "Экспортная сертификация и цифровизация — постоянные бонусы; берите их, когда касса стабильна.",
+ "В декабре премиальный спрос +20% для качества >110 — держите качество к концу года.",
+ "Перепись покупателей даёт точный прогноз на 3 месяца — планируйте крупные вложения под неё.",
+ "Во время ценовой коалиции против вас держите цену и маркетинг ниже обычного и переждите 1–2 месяца.",
+]
+def build_articles(game, cur_news, month_label):
+    groups = {"econ":[],"hr":[],"charity":[],"records":[],"personal":[],"forecast":[]}
+    def grp_of(n):
+        t = (n["head"]+" "+n["text"]).lower()
+        if any(k in t for k in ["госзакуп","минпромторг","экспортный центр","слияни","коалици","кросс-лицен"]): return "econ"
+        if any(k in t for k in ["биржа труда","профсоюз","забастов","повышение","кот в мешке","уход ключевого","кадровый праздник"]): return "hr"
+        if any(k in t for k in ["благотворительн","меценат","щедрость"]): return "charity"
+        if any(k in t for k in ["рекорд","смена лидера","лучшие продажи","рекордная выручка"]): return "records"
+        if "прогноз редакции" in t: return "forecast"
+        return "personal"
+    for n in cur_news[1:]:
+        groups[grp_of(n)].append(n)
+    arts = []
+    if cur_news:
+        lead = cur_news[0]
+        arts.append(dict(head=lead["head"].upper(), stand=lead["text"][:90]+"…", body="<p>"+lead["text"]+"</p>", photo=photo_for(lead), cap=lead["head"]))
+    def mk(kind, title, stand, photo):
+        ns = groups[kind]
+        if not ns: return None
+        body = "".join(f"<p><b>{n['head']}.</b> {n['text']}</p>" for n in ns)
+        return dict(head=title, stand=stand, body=body, photo=photo, cap=title)
+    e = mk("econ","ЭКОНОМИКА: ТЕНДЕРЫ, СУБСИДИИ, КОНТРАКТЫ","Госзаказ и господдержка месяца — в одном материале.", None)
+    if e:
+        t = " ".join(n["head"] for n in groups["econ"]).lower()
+        e["photo"] = "photo_tender" if "госзакуп" in t else ("photo_gov" if "минпромторг" in t else ("photo_exportwin" if "экспортный" in t else "photo_merger"))
+        arts.append(e)
+    for kind, title, stand, photo in [
+        ("hr","БИРЖА ТРУДА: КТО КОГО НАНЯЛ","Кадровые движения, обучение и профсоюзные страсти месяца.","photo_hr"),
+        ("charity","ВЕДОМОСТЬ ДОБРА","Кто и куда направил благотворительность — и что округ получил взамен.","photo_charity"),
+        ("records","КНИГА РЕКОРДОВ И СМЕНА ЛИДЕРОВ","Лучшие продажи, выручки и перестановки в зачёте.","photo_leader"),
+        ("forecast","ПРОГНОЗ РЕДАКЦИИ","Куда двинется рынок в следующем месяце.",None)]:
+        a = mk(kind, title, stand, photo)
+        if a: arts.append(a)
+    for n in groups["personal"]:
+        arts.append(dict(head=n["head"].upper(), stand=n["text"][:70]+"…", body="<p>"+n["text"]+"</p>", photo=photo_for(n), cap=n["head"]))
+    return arts
 if "game" not in st.session_state: st.session_state.game = None
 if "book_page" not in st.session_state: st.session_state.book_page = 0
 if "view_company" not in st.session_state: st.session_state.view_company = None
@@ -1463,7 +1774,7 @@ if game is None:
       <div class='mk-title'>МАСТЕР КАПИТАЛА</div>
       <div class='mk-sub'>экономический симулятор Вознесенского округа</div>
       <div class='mk-slogan'>Каждое решение — капитал.<br>От цеха — до холдинга.</div>
-      <div class='mk-chips'><span>◆ Деревообработка и ЧПУ</span><span>▲ Рынок и конкуренция</span><span>♜ Субсидии и госзакупки</span><span>👥 Биржа труда</span><span>🤝 Слияния и коалиции</span><span>🏅 Достижения</span><span>■ Газета «Рыночный вестникъ»</span></div>
+      <div class='mk-chips'><span>◆ Деревообработка и ЧПУ</span><span>▲ Рынок и конкуренция</span><span>♜ Субсидии и госзакупки</span><span>👥 Биржа труда</span><span>🤝 Слияния и коалиции</span><span>🐉 Иностранный игрок</span><span>✈ Экспорт</span><span>🏅 Достижения</span><span>■ Газета «Рыночный вестникъ»</span></div>
     </div>""", unsafe_allow_html=True)
     hof = hof_load()
     if hof:
@@ -1507,7 +1818,9 @@ if game is None:
                      sub_types_open=None, decisions_current={}, social_capital=0.0, retention=1.0,
                      royalty=royalty, sandbox=sandbox, pool=dict(POOL_START), achievements={},
                      coalition=None, coalition_cd=0, tender=None, merger_done=False, crosslicense=False,
-                     forum_open=False, marketplace=0, bloggers=0, exportwin=0, scandal=0, lessons=0, census=0, folk_year=0)
+                     forum_open=False, marketplace=0, bloggers=0, exportwin=0, scandal=0, lessons=0, census=0, folk_year=0,
+                     china_in=False, china_news_done=False, invite=None, expo_winner=None, expo_price=0.0,
+                     rec_rev=0.0, rec_rev_who="", rec_loss=0.0, rec_loss_who="", titles_by_year={})
             for nm in uniq: g["companies"].append(Company(nm, is_bot=False, tax=tax, start_cash=start_cash))
             for i in range(nbots): g["companies"].append(Company(BOT_NAMES[i], is_bot=True, strategy=BOT_STRATS[i%9], start_cash=start_cash))
             st.session_state.game = g; st.session_state.view_company = uniq[0]; st.rerun()
@@ -1546,17 +1859,21 @@ if st.session_state.get("print_doc"):
             total_assets = last["cash"]+last["assets"]+inv_val+last["dep_total"]; equity = total_assets-loans_sum
             st.markdown(paper_html("ОТЧЁТ О ПРИБЫЛЯХ И УБЫТКАХ", f"{c.name} · {last['month_name']}", [
                 ("Выручка", f"{last['revenue']:,.0f} ₽",""),("(−) НДС", f"{last['vat']:,.0f} ₽",""),
-                ("(−) Себестоимость", f"{last['prod_cost']:,.0f} ₽",""),("(−) Хранение", f"{last['storage']:,.0f} ₽",""),
-                ("(−) Маркетинг", f"{last['marketing']:,.0f} ₽",""),("(−) НИОКР", f"{last['rnd']:,.0f} ₽",""),
-                ("(−) Благотворительность", f"{last['charity']:,.0f} ₽",""),
+                ("(−) Себестоимость, всего", f"{last['prod_cost']:,.0f} ₽",""),
+                ("    · материалы", f"{last.get('mat_cost',0):,.0f} ₽",""),
+                ("    · ФОТ и премия", f"{last.get('labor_only',0):,.0f} ₽",""),
+                ("    · координация", f"{last.get('coord',0):,.0f} ₽",""),
+                ("    · обучение", f"{last.get('train_cost',0):,.0f} ₽",""),
+                ("    · найм и пособия", f"{last.get('hire_fee',0)+last.get('sever',0):,.0f} ₽",""),
+                ("(−) Хранение", f"{last['storage']:,.0f} ₽",""),("(−) Маркетинг", f"{last['marketing']:,.0f} ₽",""),
+                ("(−) НИОКР", f"{last['rnd']:,.0f} ₽",""),("(−) Благотворительность", f"{last['charity']:,.0f} ₽",""),
                 ("= Прибыль от продаж", f"{last['operating']:,.0f} ₽",""),
                 ("= Прибыль до налога", f"{last['base']:,.0f} ₽",""),("(−) Налог", f"{last['tax']:,.0f} ₽",""),
-                ("= ЧИСТАЯ ПРИБЫЛЬ", f"{last['profit']:,.0f} ₽","total")], PAL[2]), unsafe_allow_html=True)
-            st.markdown(paper_html("ПЕРСОНАЛ И ОБУЧЕНИЕ", f"{c.name} · {last['month_name']}",
-                [(f"{PROF_RU[p]}: занято/навык/вакансии", f"{last['staff'][p]}/{last['skill'][p]:.1f}/{c.vacancies.get(p,0)}","") for p in PROFS]+[
-                ("Новички / в обучении", f"{last['novices']}/{last['training']}",""),
-                ("Вакансии (%)", f"{last['vac_pct']:.0f}%",""),("Напряжённость", f"{last['tension']:.0f}/100",""),
-                ("ФОТ", f"{last['labor']:,.0f} ₽","total")], PAL[1]), unsafe_allow_html=True)
+                ("= ЧИСТАЯ ПРИБЫЛЬ", f"{last['profit']:,.0f} ₽","total"),
+                ("Справочно: амортизация", f"{last.get('depr',0):,.0f} ₽",""),
+                ("Справочно: инвестиции", f"{last.get('investment',0):,.0f} ₽",""),
+                ("Справочно: проценты по кредитам", f"{last.get('fin_expense',0):,.0f} ₽",""),
+                ("Справочно: проценты по депозитам", f"{last.get('fin_income',0):,.0f} ₽","")], PAL[2]), unsafe_allow_html=True)
         if kind == "pack":
             st.markdown("#### Общий зачёт"); st.markdown(rank_html(game, pname), unsafe_allow_html=True)
     elif kind == "news":
@@ -1588,7 +1905,8 @@ with st.sidebar:
                 f"**Работники:** {viewer.workers} чел.  \n**Мощность:** {viewer.capacity()} ед.  \n**Склад:** {viewer.inventory} ед.", unsafe_allow_html=True)
     st.markdown(f"**Напряжённость:** {viewer.tension:.0f}/100 · **Вакансии:** {viewer.vac_pct:.0f}%  \n"
                 f"**Контрактов:** {len(viewer.contracts)} · **Надёжность:** {viewer.reliability:.0f}  \n"
-                f"**Фьючерс:** {viewer.futures} мес · **Техникум:** {'да' if viewer.technicum else 'нет'}", unsafe_allow_html=True)
+                f"**Фьючерс:** {viewer.futures} мес · **Техникум:** {'да' if viewer.technicum else 'нет'}  \n"
+                f"**Цифровизация:** {'да' if viewer.digital else 'нет'} · **Экспорт-серт:** {'да' if viewer.export_cert else 'нет'}", unsafe_allow_html=True)
     with st.expander("Биржа труда"):
         pool = game.setdefault("pool", dict(POOL_START))
         st.markdown(f"Свободны: сб {pool['assemblers']}, ток {pool['turners']}, мр {pool['painters']}, упр {pool['managers']}.")
@@ -1621,6 +1939,16 @@ with tabs[0]:
                     +tile(PAL[2],"▲","Чистая прибыль",f"{last['profit']:+,.0f} ₽",d_profit)
                     +tile(PAL[3],"★","Качество",f"{last['quality']:.1f}")
                     +tile(PAL[4],"♥","Репутация",f"{last['reputation']:.1f}")+"</div>", unsafe_allow_html=True)
+        comps_all = [c for c in game["companies"] if c.history]
+        lead_q = max(c.quality for c in comps_all)
+        cushion = (last["cash"]+last["dep_total"])/max(1.0, FIXED_COST+viewer.labor_cost())
+        next_sub = min((m-((game["turn"])%12+1))%12 for m in SUBSIDY_MONTHS) or 12
+        next_tnd = min((m-((game["turn"])%12+1))%12 for m in TENDER_MONTHS) or 12
+        st.markdown(f"<div class='chips'><span class='chip'>⚠ Потерянный спрос: {int(last['lost'])} ед.</span>"
+                    f"<span class='chip'>◆ Маржа/ед: {last['price']-last['unit_cost']:.1f} ₽</span>"
+                    f"<span class='chip'>$ Подушка: {cushion:.1f} мес</span>"
+                    f"<span class='chip'>★ Разрыв качества с лидером: {viewer.quality-lead_q:+.1f}</span>"
+                    f"<span class='chip'>♜ Субсидии через {next_sub} мес · ▣ тендер через {next_tnd} мес</span></div>", unsafe_allow_html=True)
         ach = game.get("achievements",{}).get(viewer.name,[])
         if ach: st.markdown("<div>"+"".join(f"<span class='ach'>🏅 {dict(ACH_DEFS).get(a,a)}</span>" for a in ach)+"</div>", unsafe_allow_html=True)
         if game.get("sandbox"):
@@ -1636,16 +1964,15 @@ with tabs[0]:
         g1, g2, g3 = st.columns(3)
         with g1, st.container(border=True):
             st.markdown("<div class='ct'>Доли рынка за месяц</div>", unsafe_allow_html=True)
-            comps = [c for c in game["companies"] if c.history]
-            fig = go.Figure(go.Pie(labels=[c.name for c in comps], values=[c.history[-1]["market_share"] for c in comps],
-                                   hole=0.62, textinfo="percent", marker=dict(colors=[PAL[i%5] for i in range(len(comps))])))
+            fig = go.Figure(go.Pie(labels=[c.name for c in comps_all], values=[c.history[-1]["market_share"] for c in comps_all],
+                                   hole=0.62, textinfo="percent", marker=dict(colors=[PAL[i%5] for i in range(len(comps_all))])))
             fig_base(fig,300); st.plotly_chart(fig, use_container_width=True)
         with g2, st.container(border=True):
             st.markdown("<div class='ct'>Финансы компании</div>", unsafe_allow_html=True)
             dhp = pd.DataFrame(viewer.history); per = dhp["month_name"]+" "+dhp["turn"].astype(str)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=per, y=dhp["revenue"], name="Выручка", mode="lines+markers", line=dict(color="#eb6b56",width=3)))
-            fig.add_trace(go.Scatter(x=per, y=dhp["profit"], name="Прибыль", mode="lines+markers", line=dict(color="#47b39d",width=3)))
+            fig.add_trace(go.Scatter(x=per, y=dhp["revenue"], name="Выручка", mode="lines+markers", line=dict(color=PAL[2],width=3)))
+            fig.add_trace(go.Scatter(x=per, y=dhp["profit"], name="Прибыль", mode="lines+markers", line=dict(color=PAL[4],width=3)))
             fig_base(fig,300,legend=True); st.plotly_chart(fig, use_container_width=True)
         with g3, st.container(border=True):
             st.markdown("<div class='ct'>Загрузка и склад</div>", unsafe_allow_html=True)
@@ -1663,26 +1990,64 @@ with tabs[0]:
                 cur_year = (game["turn"]-1)//12+1; cur_moy = ((game["turn"]-1)%12)+1
                 cur = dfall[dfall["year"]==cur_year].groupby("name")["sales"].sum()
                 fig = go.Figure()
-                fig.add_trace(go.Bar(x=cur.index, y=cur.values, name=f"Год {cur_year}", marker=dict(color=[PAL[i%5] for i in range(len(cur))])))
+                fig.add_trace(go.Bar(x=cur.index, y=cur.values, name=f"Год {cur_year}", text=cur.values, textposition="outside", marker=dict(color=[PAL[i%5] for i in range(len(cur))])))
                 if cur_year >= 2:
                     pv = dfall[(dfall["year"]==cur_year-1)&(dfall["moy"]<=cur_moy)].groupby("name")["sales"].sum().reindex(cur.index).fillna(0)
-                    fig.add_trace(go.Bar(x=pv.index, y=pv.values, name=f"Год {cur_year-1}", marker=dict(color="#b8b8b8")))
-                fig.update_layout(barmode="group"); fig_base(fig,320,legend=True)
+                    fig.add_trace(go.Bar(x=pv.index, y=pv.values, name=f"Год {cur_year-1}", text=pv.values.astype(int), textposition="outside", marker=dict(color="#b8b8b8")))
+                fig.update_layout(barmode="group"); fig_base(fig,340,legend=True)
                 st.plotly_chart(fig, use_container_width=True)
         with g5, st.container(border=True):
             st.markdown("<div class='ct'>Динамика MPI (топ-5)</div>", unsafe_allow_html=True)
-            top5 = sorted([c for c in game["companies"] if c.history], key=lambda c: c.mpi_total, reverse=True)[:5]
+            top5 = sorted(comps_all, key=lambda c: c.mpi_total, reverse=True)[:5]
             fig = go.Figure()
             for i, c in enumerate(top5):
                 dc = pd.DataFrame(c.history)
                 fig.add_trace(go.Scatter(x=dc["month_name"]+" "+dc["turn"].astype(str), y=dc["mpi"], name=c.name, mode="lines+markers", line=dict(color=PAL[i%5],width=3)))
-            fig_base(fig,320,legend=True); st.plotly_chart(fig, use_container_width=True)
+            fig_base(fig,340,legend=True); st.plotly_chart(fig, use_container_width=True)
+        g6, g7 = st.columns(2)
+        with g6, st.container(border=True):
+            st.markdown("<div class='ct'>Места по ходам (динамика позиции)</div>", unsafe_allow_html=True)
+            turns_sorted = sorted({h["turn"] for c in comps_all for h in c.history})
+            fig = go.Figure()
+            for i, c in enumerate(comps_all):
+                hs = {h["turn"]: h for h in c.history}
+                places = []
+                for t in turns_sorted:
+                    if t in hs:
+                        rank_t = sorted(comps_all, key=lambda x: x.history and next((h["mpi"] for h in x.history if h["turn"]==t), -1), reverse=True)
+                        places.append(next((j+1 for j, x in enumerate(rank_t) if x.name == c.name), None))
+                    else: places.append(None)
+                fig.add_trace(go.Scatter(x=turns_sorted, y=places, name=c.name, mode="lines+markers", line=dict(color=PAL[i%5],width=2.5)))
+            fig.update_yaxes(autorange="reversed", dtick=1); fig_base(fig,340,legend=True)
+            st.plotly_chart(fig, use_container_width=True)
+        with g7, st.container(border=True):
+            st.markdown("<div class='ct'>Цена и доля за сессию</div>", unsafe_allow_html=True)
+            fig = go.Figure()
+            for i, c in enumerate(comps_all):
+                dc = pd.DataFrame(c.history); per2 = dc["turn"]
+                fig.add_trace(go.Scatter(x=per2, y=dc["price"], name=f"{c.name} цена", mode="lines", line=dict(color=PAL[i%5],width=2)))
+                fig.add_trace(go.Scatter(x=per2, y=dc["market_share"], name=f"{c.name} доля", mode="lines", line=dict(color=PAL[i%5],width=2,dash="dot")))
+            fig_base(fig,340,legend=True); st.plotly_chart(fig, use_container_width=True)
+        st.markdown("#### Рекорды за всю игру")
+        st.markdown(f"<div class='chips'><span class='chip'> Продажи/мес: {game.get('record_sales',0)} ед. — «{game.get('record_company','—')}»</span>"
+                    f"<span class='chip'>💰 Выручка/мес: {game.get('rec_rev',0):,.0f} ₽ — «{game.get('rec_rev_who','—')}»</span>"
+                    f"<span class='chip'>📉 Крупнейший убыток/мес: {game.get('rec_loss',0):,.0f} ₽ — «{game.get('rec_loss_who','—')}»</span></div>", unsafe_allow_html=True)
+        st.markdown("#### Отрасль в цифрах по годам")
+        yrs = range(1, year+1)
+        tbl = "<table class='rt'><thead><tr><th>Год</th><th class='num'>Товарооборот</th><th class='num'>Продано</th><th class='num'>Налоги</th><th class='num'>НИОКР</th><th class='num'>Благотвор.</th></tr></thead><tbody>"
+        for y in yrs:
+            ai, ar, arv, atx, au, ac = industry_stats(game, y)
+            tbl += f"<tr><td>{y}</td><td class='num'>{arv:,.0f}</td><td class='num'>{au:,}</td><td class='num'>{atx:,.0f}</td><td class='num'>{ar:,.0f}</td><td class='num'>{ac:,.0f}</td></tr>"
+        tbl += "</tbody></table>"
+        st.markdown(tbl, unsafe_allow_html=True)
         st.markdown("#### Главное за месяц")
         st.markdown(news_html(game.get("news",[])), unsafe_allow_html=True)
         if over:
             st.markdown("## ИТОГИ ИГРЫ"); st.markdown(rank_html(game, viewer.name), unsafe_allow_html=True)
-            st.markdown("#### Звания года")
-            for t in compute_titles(game): st.markdown(f"- {t}")
+            st.markdown("#### Звания по годам")
+            for y, ts in sorted(game.get("titles_by_year",{}).items()):
+                st.markdown(f"**Год {y}:** "+"; ".join(ts))
+            st.markdown("**За всю игру:** "+"; ".join(compute_titles(game)))
             if st.button("🎓 Печать дипломов (топ-3 + звания)", type="primary"):
                 st.session_state.print_doc = ("diploma",); st.rerun()
             st.balloons()
@@ -1787,7 +2152,10 @@ with tabs[1]:
                             with h2col[2]: train_prof = st.selectbox("Куда учим", ["painters","turners","assemblers"], format_func=lambda x: PROF_RU[x], key=nm+"_trainp")
                             with h2col[3]: premium = st.slider("Премия к зарплате, %", -10, 40, 0, 5, key=nm+"_prem")
                             loyalty = st.number_input("Бонус лояльности, ₽/мес", 0.0, 20000.0, 0.0, 500.0, key=nm+"_loy")
-                            st.caption(f"Вакансии: {company.vac_pct:.0f}% · В обучении: {len(company.training)} · Новички: {company.novices}")
+                            u1, u2 = st.columns(2)
+                            with u1: upskill_prof = st.selectbox("Повышение квалификации: спец.", PROFS, format_func=lambda x: PROF_RU[x], index=2, key=nm+"_upprof")
+                            with u2: upskill_n = st.number_input("Сколько штатных учим", 0, min(3, company.staff["painters"]), 0, 1, key=nm+"_upn")
+                            st.caption(f"Вакансии: {company.vac_pct:.0f}% · В обучении: {len(company.training)} · Новички: {company.novices} · Повышение: {UPSKILL_COST:,.0f} ₽/чел, навык +{UPSKILL_GAIN}")
                     tnd = game.get("tender")
                     if tnd and tnd.get("open"):
                         with st.container():
@@ -1800,7 +2168,7 @@ with tabs[1]:
                                 ps = max(0.0,1-tender_price/tnd["price_cap"]); qs = min(1.0,company.quality/(tnd["quality_min"]*1.2)); rs = min(1.0,0.5+company.reliability*0.1+company.reputation*0.02)
                                 st.caption(f"Ваш оценочный балл ≈ {0.6*ps+0.2*qs+0.2*rs:.2f}. Поля учитываются, только если отметите «Подать заявку».")
                     with st.container():
-                        st.markdown("<div id='card-risk' style='display:none'></div><div class='tag' style='--c:#5a4632'><span class='tag-hole'></span>РИСКИ И РАЗВИТИЕ: ФЬЮЧЕРС, ТЕХНИКУМ, ФОРУМ</div>", unsafe_allow_html=True)
+                        st.markdown("<div id='card-risk' style='display:none'></div><div class='tag' style='--c:#5a4632'><span class='tag-hole'></span>РИСКИ И РАЗВИТИЕ</div>", unsafe_allow_html=True)
                         with st.container():
                             st.markdown("<div id='panel-risk' style='display:none'></div>", unsafe_allow_html=True)
                             futures_chk = False
@@ -1808,12 +2176,20 @@ with tabs[1]:
                                 futures_chk = st.checkbox(f"Купить фьючерс на сырьё ({FUTURES_FEE} ₽, защита на {FUTURES_MONTHS} мес)", key=nm+"_fut")
                             else:
                                 st.caption(f"Фьючерс активен: ещё {company.futures} мес.")
-                            technicum_chk = st.checkbox(f"Партнёрство с техникумом ({TECHNICUM_FEE} ₽/мес → +1 новичок)", value=company.technicum, key=nm+"_tech")
+                            technicum_chk = st.checkbox(f"Партнёрство с техникумом ({TECHNICUM_FEE} ₽/мес → +1 лояльный новичок, обучение 2 мес)", value=company.technicum, key=nm+"_tech")
                             forum_chk = False
                             if game.get("forum_open"):
                                 forum_chk = st.checkbox(f"Оплатить участие в форуме «Промысел и бизнес» ({FORUM_FEE} ₽ → +1 репутация)", key=nm+"_forum")
+                            expo_apply = False; expo_fee = 0.0
+                            if next_m == EXPO_APPLY_M:
+                                st.markdown(f"**✈ Экспортный центр:** приём заявок на Spielwarenmesse (Нюрнберг). Допуск качество ≥100.")
+                                expo_apply = st.checkbox("Подать заявку на поездку", key=nm+"_expo")
+                                expo_fee = st.slider("Взнос за стенд, ₽", 0.0, EXPO_FEE_MAX, 0.0, 500.0, key=nm+"_expofee")
+                            expo_go = False
+                            if game.get("invite") == company.name:
+                                expo_go = st.checkbox(f"Поехать на отраслевую выставку региона ({INVITE_COST:,.0f} ₽)", key=nm+"_invite")
                             else:
-                                st.caption("Форум в этом месяце не проводится.")
+                                st.caption("Приглашений на выставки в этом месяце нет.")
                     union_choice = None
                     if company.union_offer:
                         with st.container():
@@ -1828,7 +2204,9 @@ with tabs[1]:
                                        train=[train_prof]*train_n, nov_hire=nov_hire, premium=premium, loyalty=loyalty,
                                        tender_apply=(tnd and tnd.get("open") and tender_apply) or False,
                                        tender_price=tender_price if (tnd and tnd.get("open")) else 0.0,
-                                       union_choice=union_choice, futures=futures_chk, technicum=technicum_chk, forum_pay=forum_chk)
+                                       union_choice=union_choice, futures=futures_chk, technicum=technicum_chk, forum_pay=forum_chk,
+                                       expo_apply=expo_apply, expo_fee=expo_fee, expo_go=expo_go,
+                                       upskill_prof=upskill_prof, upskill_n=upskill_n)
                         st.session_state.gate = None
                         if not [x for x in humans_alive if x not in cur]: execute_turn(game, cur)
                         st.rerun()
@@ -1846,42 +2224,89 @@ with tabs[2]:
     if viewer.history:
         st.markdown("#### Общий зачёт (по MPI за всю игру)")
         st.markdown(rank_html(game, viewer.name), unsafe_allow_html=True)
-        agg_inv, agg_rnd, agg_rev, agg_tax, agg_units, agg_char = industry_stats(game)
-        st.markdown(f"<div class='calcard'><div class='calhead'><span class='calyear'>Отрасль в цифрах</span></div>"
-                    f"<div class='chips'><span class='chip'>◆ Товарооборот {agg_rev:,.0f} ₽</span><span class='chip'>▲ Инвестиции {agg_inv:,.0f} ₽</span>"
-                    f"<span class='chip'>★ НИОКР {agg_rnd:,.0f} ₽</span><span class='chip'>■ Продано {agg_units:,} ед.</span>"
-                    f"<span class='chip'>$ Налоги {agg_tax:,.0f} ₽</span><span class='chip'>♥ Благотворительность {agg_char:,.0f} ₽</span></div></div>", unsafe_allow_html=True)
+        st.markdown("#### Отрасль в цифрах по годам")
+        tbl = "<table class='rt'><thead><tr><th>Год</th><th class='num'>Товарооборот</th><th class='num'>Инвестиции</th><th class='num'>НИОКР</th><th class='num'>Продано</th><th class='num'>Налоги</th><th class='num'>Благотвор.</th></tr></thead><tbody>"
+        for y in range(1, year+1):
+            ai, ar, arv, atx, au, ac = industry_stats(game, y)
+            tbl += f"<tr><td>{y}</td><td class='num'>{arv:,.0f}</td><td class='num'>{ai:,.0f}</td><td class='num'>{ar:,.0f}</td><td class='num'>{au:,}</td><td class='num'>{atx:,.0f}</td><td class='num'>{ac:,.0f}</td></tr>"
+        tbl += "</tbody></table>"
+        st.markdown(tbl, unsafe_allow_html=True)
     else:
         st.info("Рейтинг появится после первого хода.")
 
 with tabs[3]:
     if viewer.history:
-        st.caption(img_status())
         cur_news = game.get("news", [])
-        if over:
-            tops = sorted([c for c in game["companies"] if c.history], key=lambda c: c.mpi_total, reverse=True)[:3]
-            line = "; ".join(f"{i+1}) «{c.name}» — индекс {c.mpi_total:.1f}" for i, c in enumerate(tops))
-            st.markdown(masthead_html(game["turn"], month_label, final=True), unsafe_allow_html=True)
-            st.markdown(clip_html(dict(icon="🏆", kind="gold", head="Итоги года", text=f"Отчётный период завершён. Лидеры: {line}."), month_label, front=True), unsafe_allow_html=True)
+        rng = random.Random(game["turn"]*7+13)
+        arts = build_articles(game, cur_news, month_label)
+        front = arts[0] if arts else None
+        restarts = arts[1:]
+        pages = [restarts[i:i+2] for i in range(0, len(restarts), 2)]
+        npages = 1 + len(pages) + 1
+        npage = max(0, min(npages-1, int(st.session_state.get("news_page", 0))))
+        st.session_state.news_page = npage
+        st.markdown(masthead_html(game["turn"], month_label, final=over), unsafe_allow_html=True)
+        comps_h = [c for c in game["companies"] if c.history]
+        if npage == 0 and front:
+            cols = st.columns([1,1,1,1])
+            tez = [(pi+2, grp[0]["head"], grp[0]["stand"]) for pi, grp in enumerate(pages) if grp][:3]
+            for idx, (pg, th, ts) in enumerate(tez):
+                with cols[idx]:
+                    if st.button(f"{pg:02d} · {th}", key=f"tez{pg}"): st.session_state.news_page = pg-1; st.rerun()
+                    st.caption(ts[:60]+"…")
+            with cols[3]:
+                st.markdown(figure_html("photo_matryoshki", "Матрёшка месяца: витрина округа", 110), unsafe_allow_html=True)
+            st.markdown(f"<div class='np-h' style='font-size:38px;margin-top:14px'>{front['head']}</div>"
+                        f"<div class='np-stand' style='font-size:16px'>{front['stand']}</div>", unsafe_allow_html=True)
+            st.markdown(figure_html(front.get("photo","photo_market"), front.get("cap","Событие месяца"), 280), unsafe_allow_html=True)
+            gL, gR = st.columns([3,1])
+            with gL:
+                st.markdown(f"<div class='np-cols3 np-drop'>{front['body']}</div>", unsafe_allow_html=True)
+            with gR:
+                vn = "".join(f"<div class='vi'><span class='pg'>{pi+2:02d}</span><span>{grp[0]['head']}</span></div>" for pi, grp in enumerate(pages) if grp)
+                vn += f"<div class='vi'><span class='pg'>{npages:02d}</span><span>Мудрость рынка</span></div>"
+                st.markdown(f"<div class='np-vnom'><div class='vh'>В номере</div>{vn}</div>", unsafe_allow_html=True)
+                for pi, grp in enumerate(pages):
+                    if grp and st.button(f"→ полоса {pi+2}: {grp[0]['head'][:24]}", key=f"vn{pi}"): st.session_state.news_page = pi+1; st.rerun()
+                if st.button(f"→ полоса {npages}: Мудрость рынка", key="vnlast"): st.session_state.news_page = npages-1; st.rerun()
+        elif 1 <= npage <= len(pages):
+            grp = pages[npage-1]
+            if len(grp) == 1:
+                st.markdown(article_card(grp[0], wide=True), unsafe_allow_html=True)
+            else:
+                c1, c2 = st.columns(2)
+                c1.markdown(article_card(grp[0]), unsafe_allow_html=True)
+                c2.markdown(article_card(grp[1]), unsafe_allow_html=True)
+            b1, b2 = st.columns([2,1])
+            lp = max(comps_h, key=lambda c: c.history[-1]["profit"]); lq = max(comps_h, key=lambda c: c.quality)
+            pq = rng.choice([(f"Мы держим маржу, потому что каждая матрёшка окупает своё дерево", f"директор «{lp.name}»"),
+                             (f"Качество — это не расход, это наш единственный бесплатный маркетинг", f"главный мастер «{lq.name}»"),
+                             (f"Склад — это замороженные деньги; мы предпочитаем продавать, а не хранить", f"директор «{lp.name}»")])
+            with b1: st.markdown(pull_quote(pq[0], pq[1]), unsafe_allow_html=True)
+            with b2: st.markdown(vrezka("Округ в цифрах", f"Склад {sum(c.inventory for c in comps_h)} ед. · Патентов {sum(1 for c in comps_h if c.patent)} · Брендов {sum(1 for c in comps_h if c.brand)}"), unsafe_allow_html=True)
         else:
-            st.markdown(masthead_html(game["turn"], month_label), unsafe_allow_html=True)
-        if cur_news:
-            if not over: st.markdown(clip_html(cur_news[0], month_label, front=True), unsafe_allow_html=True)
-            rest = cur_news[1:] if not over else cur_news
-            contracts_rows = [(ct["customer"], c.name, ct["months"], ct["price"]) for c in game["companies"] for ct in c.contracts]
-            if contracts_rows:
-                body = "; ".join(f"{cust} → «{nm_}» ({m} мес, {p:.1f} ₽)" for cust, nm_, m, p in contracts_rows)
-                rest = [dict(icon="🏛", kind="ok", head="Реестр контрактов", text=f"Действующие госконтракты: {body}.")]+rest
-            if game.get("record_sales"):
-                rest = [dict(icon="📯", kind="gold", head="Книга рекордов отрасли", text=f"Рекорд по продажам за месяц: {game['record_sales']} ед. — «{game['record_company']}».")]+rest
-            if game.get("forecast_dir"):
-                ft = {"positive":"положительная динамика","negative":"отрицательная динамика","stable":"стабильная динамика"}[game["forecast_dir"]]
-                acc = "Точность 100% (перепись)." if game.get("census") else "Точность 90%."
-                rest = [dict(icon="🔮", kind="ok", head="Прогноз редакции", text=f"В следующем месяце ожидается {ft}. {acc}")]+rest
-            for i in range(0, len(rest), 2):
-                a, b = st.columns(2)
-                a.markdown(clip_html(rest[i], month_label), unsafe_allow_html=True)
-                if i+1 < len(rest): b.markdown(clip_html(rest[i+1], month_label), unsafe_allow_html=True)
+            st.markdown("<div class='sec-head'>Полоса мудрости</div>", unsafe_allow_html=True)
+            quotes = rng.sample(QUOTES, min(4, len(QUOTES))); tips = rng.sample(GAME_TIPS, min(3, len(GAME_TIPS)))
+            q1, q2 = st.columns(2)
+            with q1:
+                for q in quotes[:2]: st.markdown(f"<div class='np-vrez'><div class='vh'>{q[0]}</div>«{q[1]}»<br><i>{q[2]}</i></div>", unsafe_allow_html=True)
+            with q2:
+                for q in quotes[2:]: st.markdown(f"<div class='np-vrez'><div class='vh'>{q[0]}</div>«{q[1]}»<br><i>{q[2]}</i></div>", unsafe_allow_html=True)
+            st.markdown(vrezka("Практические подсказки редакции", "<br>".join("• "+t for t in tips)), unsafe_allow_html=True)
+            if over:
+                dead = [c.name for c in game["companies"] if c.bankrupt]
+                if dead: st.markdown(f"<div class='obit'>С прискорбием извещаем: не выдержали рыночной борьбы и покинули нас «{'», «'.join(dead)}».</div>", unsafe_allow_html=True)
+        st.markdown(ticker_html(game), unsafe_allow_html=True)
+        n1, n2, n3 = st.columns([1,1,1])
+        with n1:
+            if st.button("◀ Предыдущая полоса", disabled=(npage==0)): st.session_state.news_page = npage-1; st.rerun()
+        with n2:
+            st.markdown(f"<div style='text-align:center'><span class='np-pagebadge'>{npage+1:02d} →</span></div>", unsafe_allow_html=True)
+        with n3:
+            if npage < npages-1:
+                if st.button("Следующая полоса ▶"): st.session_state.news_page = npage+1; st.rerun()
+            else:
+                if st.button("⏮ К первой полосе"): st.session_state.news_page = 0; st.rerun()
         archive = [n for n in reversed(game.get("news_log",[])) if n not in cur_news][:12]
         if archive:
             st.markdown("<div class='ct' style='margin-top:10px'>Архив номеров</div>", unsafe_allow_html=True)
@@ -1902,14 +2327,22 @@ with tabs[4]:
         if pg == 0:
             html = paper_html("ОТЧЁТ О ПРИБЫЛЯХ И УБЫТКАХ", f"{viewer.name} · {last['month_name']}", [
                 ("Выручка", f"{last['revenue']:,.0f} ₽",""),("(−) НДС", f"{last['vat']:,.0f} ₽",""),
-                ("(−) Себестоимость", f"{last['prod_cost']:,.0f} ₽",""),("(−) Хранение", f"{last['storage']:,.0f} ₽",""),
-                ("(−) Маркетинг", f"{last['marketing']:,.0f} ₽",""),("(−) НИОКР", f"{last['rnd']:,.0f} ₽",""),
-                ("(−) Благотворительность", f"{last['charity']:,.0f} ₽",""),
+                ("(−) Себестоимость, всего", f"{last['prod_cost']:,.0f} ₽",""),
+                ("    · материалы", f"{last.get('mat_cost',0):,.0f} ₽",""),
+                ("    · ФОТ и премия", f"{last.get('labor_only',0):,.0f} ₽",""),
+                ("    · координация (дефицит управленцев)", f"{last.get('coord',0):,.0f} ₽",""),
+                ("    · обучение", f"{last.get('train_cost',0):,.0f} ₽",""),
+                ("    · найм и выходные пособия", f"{last.get('hire_fee',0)+last.get('sever',0):,.0f} ₽",""),
+                ("(−) Хранение", f"{last['storage']:,.0f} ₽",""),("(−) Маркетинг", f"{last['marketing']:,.0f} ₽",""),
+                ("(−) НИОКР", f"{last['rnd']:,.0f} ₽",""),("(−) Благотворительность", f"{last['charity']:,.0f} ₽",""),
                 ("= Прибыль от продаж", f"{last['operating']:,.0f} ₽",""),
                 ("+ Прочие доходы", f"{last['fin_income']:,.0f} ₽",""),("− Прочие расходы", f"{last['fin_expense']:,.0f} ₽",""),
                 ("= Прибыль до налога", f"{last['base']:,.0f} ₽",""),("(−) Налог", f"{last['tax']:,.0f} ₽",""),
                 ("= ЧИСТАЯ ПРИБЫЛЬ", f"{last['profit']:,.0f} ₽","total"),
-                ("Справочно: амортизация", f"{last.get('depr',0):,.0f} ₽","")], PAL[2])
+                ("Справочно: амортизация", f"{last.get('depr',0):,.0f} ₽",""),
+                ("Справочно: инвестиции (капвложения)", f"{last.get('investment',0):,.0f} ₽",""),
+                ("Справочно: проценты по кредитам", f"{last.get('fin_expense',0):,.0f} ₽",""),
+                ("Справочно: проценты по депозитам", f"{last.get('fin_income',0):,.0f} ₽","")], PAL[2])
         elif pg == 1:
             html = paper_html("ПРОИЗВОДСТВЕННЫЙ ОТЧЁТ", f"{viewer.name} · {last['month_name']}", [
                 ("Заказы получены", f"{int(last['orders'])} ед.",""),("Продано", f"{int(last['sales'])} ед.",""),
@@ -1965,14 +2398,14 @@ with tabs[5]:
         dhp = pd.DataFrame(viewer.history); dhp["Период"] = dhp["month_name"]+" "+dhp["turn"].astype(str)
         with t1:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["revenue"], name="Выручка", line=dict(color="#eb6b56",width=3)))
-            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["profit"], name="Прибыль", line=dict(color="#47b39d",width=3)))
-            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["cash"]+dhp["dep_total"], name="Деньги", line=dict(color="#462446",width=2,dash="dot")))
+            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["revenue"], name="Выручка", line=dict(color=PAL[2],width=3)))
+            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["profit"], name="Прибыль", line=dict(color=PAL[4],width=3)))
+            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["cash"]+dhp["dep_total"], name="Деньги", line=dict(color=PAL[0],width=2,dash="dot")))
             fig_base(fig,380,legend=True); st.plotly_chart(fig, use_container_width=True)
         with t2:
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["quality"], name="Качество", line=dict(color="#ffc153",width=3)))
-            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["reputation"], name="Репутация", line=dict(color="#b05f6d",width=3)))
+            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["quality"], name="Качество", line=dict(color=PAL[3],width=3)))
+            fig.add_trace(go.Scatter(x=dhp["Период"], y=dhp["reputation"], name="Репутация", line=dict(color=PAL[1],width=3)))
             fig_base(fig,380,legend=True); st.plotly_chart(fig, use_container_width=True)
         with t3:
             fig = go.Figure()
@@ -1999,7 +2432,7 @@ with tabs[6]:
         elif doc == "🎓 Диплом победителя (топ-3 + звания)": st.session_state.print_doc = ("diploma",)
         else: st.session_state.print_doc = ("rules",)
         st.rerun()
-    st.caption("Документ откроется на чистой странице; окно печати появится автоматически (или Ctrl+P).")
+    st.caption("Документ откроется на чистой странице; окно печати появится автоматически (или Ctrl+P). Каждый диплом ляжет на одну страницу.")
 
 with tabs[7]:
     st.markdown("#### 📖 Энциклопедия игры «Мастер Капитала»")
